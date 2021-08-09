@@ -1,0 +1,22 @@
+// Copyright 2021 Google LLC
+//
+// Use of this source code is governed by an MIT-style
+// license that can be found in the LICENSE file or at
+// https://opensource.org/licenses/MIT.
+
+syntax = "proto3";
+
+package testing;
+
+message HelloRequest {
+  optional string name = 1;
+}
+
+message HelloReply {
+  optional string message = 1;
+}
+
+service Greeter {
+  // This is a test method to receive a HelloRequest and send a HelloReply.
+  rpc SayHello(HelloRequest) returns (HelloReply) {}
+}
