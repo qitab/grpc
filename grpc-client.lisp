@@ -226,6 +226,14 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
        (grpc-credentials-release loas2-credentials)
        (grpc-channel-destroy ,bound-channel))))
 
+(defmacro with-insecure-channel
+    ((bound-channel address) &body body)
+  "Creates a gRPC insecure channel to ADDRESS. Binds the channel to BOUND-CHANNEL, runs BODY,
+and returns its values. After the body has run, the channel is destroyed."
+  `(let ((,bound-channel (create-channel ,address)))
+     (unwind-protect (progn ,@body)
+       (grpc-channel-destroy ,bound-channel))))
+
 (defun grpc-call (channel service-method-name bytes-to-send)
   "Uses CHANNEL to call SERVICE-METHOD-NAME on the server with BYTES-TO-SEND
 as the arguement to the method and returns the response<list of byte arrays> from the server."
