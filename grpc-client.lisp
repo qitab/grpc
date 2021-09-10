@@ -190,6 +190,7 @@ macros and only call once."
     (setf *completion-queue* nil))
   (cffi:foreign-funcall "grpc_shutdown"))
 
+;; begin-internal
 (defmacro with-loas2-channel
     ((bound-channel (address (&key
                                 (desired-role (cffi:null-pointer))
@@ -225,6 +226,7 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
        (grpc-loas2-credentials-options-delete loas2-credentials-options)
        (grpc-credentials-release loas2-credentials)
        (grpc-channel-destroy ,bound-channel))))
+;; end-internal
 
 (defmacro with-insecure-channel
     ((bound-channel address) &body body)
