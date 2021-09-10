@@ -12,8 +12,5 @@
    ;; Client Functions
    #:init-grpc
    #:shutdown-grpc
-   ;; begin-internal
-   #:with-loas2-channel
-   ;; end-internal
    #:with-insecure-channel
    #:grpc-call))

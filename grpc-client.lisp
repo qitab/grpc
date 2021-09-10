@@ -190,44 +190,6 @@ macros and only call once."
     (setf *completion-queue* nil))
   (cffi:foreign-funcall "grpc_shutdown"))
 
-;; begin-internal
-(defmacro with-loas2-channel
-    ((bound-channel (address (&key
-                                (desired-role (cffi:null-pointer))
-                                (min-security-level :GRPC-SECURITY-NONE)
-                                (serialized-server-authorization-policy
-                                 (cffi:null-pointer))
-                                (serialized-server-authorization-policy-length
-                                 0)
-                                (instance-info-required 0)))) &body body)
-  "Creates a gRPC secure channel to ADDRESS using the
-LOAS2 protocol, which requires parameters to create the LOAS2
-credentials and binds the channel to BOUND-CHANNEL then runs BODY and returns
-its values. After the body has run memory is freed for the LOAS2 credentials and
-LOAS2 credential options, the channel is managed by the envelope (see go/envelope).
-
-List containing the parameters values will
-correspond to fields of grpc_loas2_credentials_options struct:
-  (DESIRED-ROLE<string> MIN-SECURITY-LEVEL<grpc-security-level>
-  SERIALIZED-SERVER-AUTHORIZATION-POLICY<string>
-  SERIALIZED-SERVER-AUTHORIZATION-POLICY-LENGTH<int> INSTANCE-INFO-REQUIRED<int>)
-
-Allows the gRPC secure channel to be used in a memory-safe and concise manner."
-  `(let* ((loas2-credentials-options
-            (create-grpc-loas2-credentials-options
-             ,desired-role ,min-security-level
-             ,serialized-server-authorization-policy
-             ,serialized-server-authorization-policy-length
-             ,instance-info-required))
-          (loas2-credentials (c-grpc-client-new-loas2-credentials
-                              loas2-credentials-options))
-          (,bound-channel (create-channel ,address loas2-credentials)))
-     (unwind-protect (progn ,@body)
-       (grpc-loas2-credentials-options-delete loas2-credentials-options)
-       (grpc-credentials-release loas2-credentials)
-       (grpc-channel-destroy ,bound-channel))))
-;; end-internal
-
 (defmacro with-insecure-channel
     ((bound-channel address) &body body)
   "Creates a gRPC insecure channel to ADDRESS. Binds the channel to BOUND-CHANNEL, runs BODY,

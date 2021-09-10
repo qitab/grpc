@@ -10,9 +10,6 @@
   (:use #:common-lisp)
   (:local-nicknames (#:testing #:cl-protobufs)
                     (#:testing-grpc #:cl-protobufs)
-                    ;; begin-internal
-                    (#:log #:google.log)
-                    ;; end-internal
                     (#:flag #:ace.flag))
   (:export #:main))
 
@@ -29,9 +26,6 @@
   :type INTEGER)
 
 (defun main ()
-  ;; begin-internal
-  (google:init)
-  ;; end-internal
   (grpc:init-grpc)
   (grpc:with-insecure-channel
       (channel (concatenate 'string hostname ":" (write-to-string port-number)))

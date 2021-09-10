@@ -110,16 +110,6 @@ for now and subject to change."
   (cffi:foreign-funcall "grpc_metadata_credentials_create_from_plugin"
                         :pointer plugin grpc-security-level min-security-level :pointer))
 
-;; begin-internal
-(cffi:defcfun ("create_grpc_loas2_credentials_options"
-               create-grpc-loas2-credentials-options) :pointer
-  (desired-role :string)
-  (min-security-level grpc-security-level)
-  (serialized-server-authorization-policy :string)
-  (serialized-server-authorization-policy-length :size)
-  (instance-info-required :int))
-;; end-internal
-
 (defun c-grpc-client-new-loas2-credentials (options)
   "This method creates a LOAS2 channel credential object."
   (cffi:foreign-funcall "grpc_loas2_credentials_create"
