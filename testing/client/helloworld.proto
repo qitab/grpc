@@ -10,6 +10,7 @@ package testing;
 
 message HelloRequest {
   optional string name = 1;
+  optional int32 num_responses = 2;
 }
 
 message HelloReply {
@@ -17,6 +18,15 @@ message HelloReply {
 }
 
 service Greeter {
-  // This is a test method to receive a HelloRequest and send a HelloReply.
+  // Receives a HelloRequest and response with a HelloReply.
   rpc SayHello(HelloRequest) returns (HelloReply) {}
+  // Receive a HelloRequest requesting some number of responses in num_responses
+  // and response with a HelloReply num_responses times.
+  rpc SayHelloServerStream(HelloRequest) returns (stream HelloReply) {}
+  // Receive a number of requests and concatenate the name field of each
+  // HelloRequest. Return the final string in HelloReply.
+  rpc SayHelloClientStream(stream HelloRequest) returns (HelloReply) {}
+  // Receive a number of HelloRequest requesting some number of responses in num_responses.
+  // Respond to each HelloRequest with a HelloReply num_responses times.
+  rpc SayHelloBidirectionalStream(stream HelloRequest) returns (stream HelloReply) {}
 }

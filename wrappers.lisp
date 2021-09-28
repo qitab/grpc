@@ -13,7 +13,7 @@
   "Security levels of grpc transport security. It represents an inherent
 property of a backend connection and is determined by a channel credential
 used to create the connection."
- :GRPC-SECURITY-MIN
+  :GRPC-SECURITY-MIN
   :GRPC-SECURITY-NONE
   :GRPC-INTEGRITY-ONLY
   :GRPC-PRIVACY-AND-INTEGRITY
@@ -47,6 +47,26 @@ grpc_call_start_batch."
   :GRPC-CALL-ERROR-BATCH-TOO-BIG
   :GRPC-CALL-ERROR-PAYLOAD-TYPE-MISMATCH
   :GRPC-CALL-ERROR-COMPLETION-QUEUE-SHUTDOWN)
+
+(cffi:defcenum grpc-status-code
+  "The grpc-status-code enum values"
+  :GRPC-STATUS-OK
+  :GRPC-STATUS-CANCELLED
+  :GRPC-STATUS-UNKNOWN
+  :GRPC-STATUS-INVALID-ARGUMENT
+  :GRPC-STATUS-DEADLINE-EXCEEDED
+  :GRPC-STATUS-NOT-FOUND
+  :GRPC-STATUS-ALREADY-EXISTS
+  :GRPC-STATUS-PERMISSION-DENIED
+  :GRPC-STATUS-RESOURCE-EXHAUSTED
+  :GRPC-STATUS-FAILED-PRECONDITION
+  :GRPC-STATUS-ABORTED
+  :GRPC-STATUS-OUT-OF-RANGE
+  :GRPC-STATUS-UNIMPLEMENTED
+  :GRPC-STATUS-INTERNAL
+  :GRPC-STATUS-UNAVAILABLE
+  :GRPC-STATUS-DATA-LOSS
+  :GRPC-STATUS-UNAUTHENTICATED)
 
 ;; gRPC Client Channel wrappers
 (defun c-grpc-client-new-insecure-channel (target args)
@@ -86,6 +106,27 @@ resulting connection is GRPC_PRIVACY_AND_INTEGRITY.
 
 ;; gRPC Client Credentials wrappers
 
+(cffi:defcfun ("create_grpc_ssl_pem_key_cert_pair"
+               create-grpc-ssl-pem-key-cert-pair) :pointer
+  (private-key :string)
+  (cert-chain :string))
+
+(cffi:defcfun ("delete_grpc_ssl_pem_key_cert_pair" grpc-ssl-pem-key-cert-pair-delete)
+    :void
+  "Deletes KEYPAIR, a grpc_ssl_pem_key_cert_pair object."
+  (keypair :pointer))
+
+(cffi:defcfun ("create_grpc_ssl_verify_peer_options"
+               create-grpc-ssl-verify-peer-options) :pointer
+  (verify-peer-callback :pointer)
+  (verify-peer-callback-userdata :pointer)
+  (verify-peer-destruct :pointer))
+
+(cffi:defcfun ("delete_grpc_ssl_verify_peer_options" grpc-ssl-verify-peer-options-delete)
+    :void
+  "Deletes OPTIONS, a grpc_ssl_verify_peer_options object."
+  (options :pointer))
+
 (defun c-grpc-client-new-ssl-credentials
     (pem-roots-certs pem-key-cert-pair verify-options)
   "Creates an SSL credentials object.
@@ -96,7 +137,7 @@ The security level of the resulting connection is GRPC_PRIVACY_AND_INTEGRITY.
  - VERIFY-OPTIONS holds additional options controlling how peer certificates
    are verified."
   (cffi:foreign-funcall "grpc_ssl_credentials_create_ex"
-                        :pointer pem-roots-certs
+                        :string pem-roots-certs
                         :pointer pem-key-cert-pair
                         :pointer verify-options
                         :pointer (cffi-sys:null-pointer)
@@ -109,16 +150,6 @@ GRPC_SECURITY_NONE for LOCAL_TCP. It is used for experimental purpose
 for now and subject to change."
   (cffi:foreign-funcall "grpc_metadata_credentials_create_from_plugin"
                         :pointer plugin grpc-security-level min-security-level :pointer))
-
-(defun c-grpc-client-new-loas2-credentials (options)
-  "This method creates a LOAS2 channel credential object."
-  (cffi:foreign-funcall "grpc_loas2_credentials_create"
-                        :pointer options :pointer))
-
-(cffi:defcfun ("delete_grpc_loas2_credentials_options" grpc-loas2-credentials-options-delete)
-    :void
-  "Deletes OPTIONS, a grpc_loas2_credentials_options object."
-   (options :pointer))
 
 (defun c-grpc-client-new-alts-credentials (options min-security-level)
   "This method creates an ALTS channel credential object. The security
@@ -218,11 +249,6 @@ WARNING: Do NOT use this credentials to connect to a non-google service as
 
 ;; gRPC Server Credentials
 
-(defun c-grpc-server-new-loas2-credentials (options)
-  "This method creates a LOAS2 channel credential object."
-  (cffi:foreign-funcall "grpc_loas2_server_credentials_create"
-                        :pointer options :pointer))
-
 (defun c-grpc-server-new-ssl-credentials (options)
   "Creates an SSL server_credentials object using the provided options struct."
   (cffi:foreign-funcall "grpc_ssl_server_credentials_create_with_options"
@@ -298,6 +324,10 @@ before freeing ops."
 
 (cffi:defcfun ("create_empty_grpc_status_code" create-grpc-status-code)
     :pointer)
+
+(cffi:defcfun ("lisp_grpc_op_get_status" recv-status-on-client-code) grpc-status-code
+  (ops :pointer)
+  (index :int))
 
 (cffi:defcfun ("convert_string_to_grpc_slice" convert-string-to-grpc-slice)
   :pointer

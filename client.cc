@@ -18,7 +18,6 @@
 #include <grpc/impl/codegen/slice.h>
 #include <grpc/impl/codegen/status.h>
 #include <grpc/slice.h>
-#include "base/logging.h"
 
 namespace lisp {
 namespace lisp_grpc {
@@ -138,7 +137,8 @@ void lisp_grpc_make_recv_message_op(grpc_op* op, int flags, int index) {
 }
 
 grpc_byte_buffer* lisp_grpc_op_recv_message(grpc_op* op, int index) {
-  return *(op[index].data.recv_message.recv_message);
+    return op[index].data.recv_message.recv_message == nullptr ?
+        nullptr : *op[index].data.recv_message.recv_message;
 }
 
 // Takes in a preallocated grpc_op array.
@@ -173,8 +173,8 @@ void lisp_grpc_client_make_recv_status_op(grpc_op* op, int flags, int index) {
   op[index].op = GRPC_OP_RECV_STATUS_ON_CLIENT;
   op[index].data.recv_status_on_client.trailing_metadata =
       create_new_grpc_metadata_array();
-  op[index].data.recv_status_on_client.status = new grpc_status_code;
-  op[index].data.recv_status_on_client.status_details = new grpc_slice;
+  op[index].data.recv_status_on_client.status = new grpc_status_code();
+  op[index].data.recv_status_on_client.status_details = new grpc_slice();
   op[index].flags = flags;
   op[index].reserved = nullptr;
 }
@@ -184,8 +184,8 @@ grpc_metadata_array* lisp_grpc_op_get_trailing_metadata(grpc_op* ops, int index)
   return ops[index].data.recv_status_on_client.trailing_metadata;
 }
 
-grpc_status_code* lisp_grpc_op_get_status(grpc_op* ops, int index) {
-  return ops[index].data.recv_status_on_client.status;
+grpc_status_code lisp_grpc_op_get_status(grpc_op* ops, int index) {
+  return *ops[index].data.recv_status_on_client.status;
 }
 
 grpc_slice* lisp_grpc_op_get_status_details(grpc_op* ops, int index) {

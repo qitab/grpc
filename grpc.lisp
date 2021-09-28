@@ -8,9 +8,13 @@
 
 (defpackage #:grpc
   (:use #:common-lisp)
+  (:local-nicknames
+   (#:proto-impl #:cl-protobufs.implementation)
+   (#:proto #:cl-protobufs))
   (:export
    ;; Client Functions
    #:init-grpc
    #:shutdown-grpc
    #:with-insecure-channel
+   #:with-ssl-channel
    #:grpc-call))

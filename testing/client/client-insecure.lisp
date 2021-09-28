@@ -27,10 +27,41 @@
 
 (defun main ()
   (grpc:init-grpc)
-  (grpc:with-insecure-channel
-      (channel (concatenate 'string hostname ":" (write-to-string port-number)))
-    (let* ((message (cl-protobufs.testing:make-hello-request :name "Neo"))
-           (response (grpc:grpc-call channel "/testing.Greeter/SayHello"
-                                     (cl-protobufs:serialize-to-bytes message))))
-      (format nil "Response: ~A" (flexi-streams:octets-to-string (car response)))))
-  (grpc:shutdown-grpc))
+  (unwind-protect
+       (grpc:with-insecure-channel
+           (channel (concatenate 'string hostname ":" (write-to-string port-number)))
+
+         ;; Unary streaming
+         (let* ((message (cl-protobufs.testing:make-hello-request :name "Neo"))
+                (response (cl-protobufs.testing-rpc:call-say-hello channel message)))
+           (format nil "Response: ~A" (cl-protobufs.testing:hello-reply.message response))
+           response)
+
+         ;; Server Streaming
+         (let* ((message (cl-protobufs.testing:make-hello-request
+                          :name "Neo" :num-responses 3))
+                (response (cl-protobufs.testing-rpc:call-say-hello-server-stream channel message)))
+           (loop for message in response
+                 do
+              (format nil "Response: ~A" (cl-protobufs.testing:hello-reply.message message))))
+
+         ;; Client Streaming
+         (let* ((messages (list (cl-protobufs.testing:make-hello-request :name "Pika")
+                                (cl-protobufs.testing:make-hello-request :name "Chu")
+                                (cl-protobufs.testing:make-hello-request :name "Char")
+                                (cl-protobufs.testing:make-hello-request :name "Mander")))
+                (response (cl-protobufs.testing-rpc:call-say-hello-client-stream channel messages)))
+           (format nil "Response: ~A" (cl-protobufs.testing:hello-reply.message response)))
+
+         ;; Bidirectional Streaming.
+         (let* ((messages (list (cl-protobufs.testing:make-hello-request
+                                 :name "Pika" :num-responses 1)
+                                (cl-protobufs.testing:make-hello-request
+                                 :name "Chu" :num-responses 2)
+                                (cl-protobufs.testing:make-hello-request
+                                 :name "Char" :num-responses 3)))
+                (response (cl-protobufs.testing-rpc:call-say-hello-bidirectional-stream channel messages)))
+           (loop for message in response
+                 do
+              (format nil "Response: ~A" (cl-protobufs.testing:hello-reply.message message)))))
+    (grpc:shutdown-grpc)))
