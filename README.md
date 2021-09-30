@@ -86,11 +86,17 @@ A bidirectional streaming RPC sends any number of messages and receives any numb
 The `grpc-call` function takes in a list of vectors for `bytes-to-send`
 and returns a list of octet-vectors corresponding to the received messages.
 
-### cl-protobufs Integration
+### Protocol Buffer Integration
 
-gRPC can integrate with cl-protobufs to send Protocol Buffer messages
-over gRPC. To use gRPC you must load cl-protobufs and gRPC with
-grpc-protobuf-integration.lisp into your running lisp image.
+gRPC can work with or without Protocol Buffer support. With that said,
+it is common to use a Protocol Buffer library in conjunction with gRPC.
+We have implemented support for the `cl-protobufs` library.
+
+The Qitab team provides supports `cl-protobufs` and doesn't gaurantee continued support
+for other data format libraries.
+
+To use gRPC with `cl-protobufs` you must load `cl-protobufs` and `gRPC` with
+`grpc-protobuf-integration.lisp` into your running lisp image.
 
 Example:
 
