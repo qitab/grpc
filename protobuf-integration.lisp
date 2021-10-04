@@ -11,9 +11,8 @@
 
 (in-package #:grpc)
 
-;; Tell the Protobufs-generated stubs who's in charge of RPC
-(setq proto-impl:*rpc-package* (find-package "GRPC")
-      proto-impl:*rpc-call-function* 'start-call)
+;;; Tell the cl-protobufs method-call stubs who's in charge of RPC.
+(setq cl-protobufs:*rpc-call-function* 'start-call)
 
 (defgeneric start-call (channel method request response &key callback)
   (:documentation
