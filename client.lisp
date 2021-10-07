@@ -257,60 +257,85 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
        (grpc-credentials-release ssl-credentials)
        (grpc-channel-destroy ,bound-channel))))
 
-(defun receive-message (call tag)
-  "Receive a message from the server for CALL. Takes in a TAG so
-we don't have to cons a new one."
-  (let* ((receive-op (create-new-grpc-ops 1))
+(defstruct call
+  (c-call nil :type cffi:foreign-pointer)
+  (c-tag nil :type cffi:foreign-pointer)
+  (c-ops nil :type cffi:foreign-pointer)
+  ;; This is a plist where the key is a keyword for a type of op
+  ;; and the value is the index of that op in an op-array.
+  (ops-plist nil :type list))
+
+(defun receive-message (call)
+  "Receive a message from the server for a CALL."
+  (declare (type call call))
+  (let* ((tag (call-c-tag call))
+         (c-call (call-c-call call))
+         (receive-op (create-new-grpc-ops 1))
          (ops-plist (prepare-ops receive-op nil :recv-message t))
-         (call-code (call-start-batch call receive-op 1 tag)))
+         (call-code (call-start-batch c-call receive-op 1 tag)))
     (unless (eql call-code :grpc-call-ok)
       (grpc-ops-free receive-op 1)
       (error 'grpc-call-error :call-error call-code))
     (when (completion-queue-pluck *completion-queue* tag)
-      (let ((response-byte-buffer
-             (get-grpc-op-recv-message receive-op (getf ops-plist :recv-message))))
-        (if (cffi:null-pointer-p response-byte-buffer)
-            nil
-            (loop for index from 0
-                    to (1- (get-grpc-byte-buffer-slice-buffer-count
-                            response-byte-buffer))
-                  collecting (convert-grpc-slice-to-bytes
-                              (get-grpc-slice-from-grpc-byte-buffer
-                               response-byte-buffer index))
-                    into message
-                  finally
-               (grpc-byte-buffer-destroy response-byte-buffer)
-               (grpc-ops-free receive-op 1)
-               (return message)))))))
+      (let* ((response-byte-buffer
+              (get-grpc-op-recv-message receive-op (getf ops-plist :recv-message)))
+             (message
+              (unless (cffi:null-pointer-p response-byte-buffer)
+                (loop for index from 0
+                        to (1- (get-grpc-byte-buffer-slice-buffer-count
+                                response-byte-buffer))
+                      collecting (convert-grpc-slice-to-bytes
+                                  (get-grpc-slice-from-grpc-byte-buffer
+                                   response-byte-buffer index))
+                        into message
+                      finally
+                   (grpc-byte-buffer-destroy response-byte-buffer)
+                   (return message)))))
+        (grpc-ops-free receive-op 1)
+        (check-server-status
+         (call-c-ops call)
+         (getf (call-ops-plist call) :client-recv-status))
+        message))))
 
-(defun send-message (call tag bytes-to-send)
-  "SEND a message for CALL. Takes in a TAG so we don't have to cons a new one."
-  (let* ((send-op (create-new-grpc-ops 1))
+(defun send-message (call bytes-to-send)
+  "Send a message encoded in BYTES-TO-SEND to the server through a CALL."
+  (declare (type call call))
+  (let* ((c-call (call-c-call call))
+         (tag (call-c-tag call))
+         (send-op (create-new-grpc-ops 1))
          (grpc-slice
           (convert-grpc-slice-to-grpc-byte-buffer
            (convert-bytes-to-grpc-slice bytes-to-send)))
          (ops-plist (prepare-ops send-op grpc-slice :send-message t))
-         (call-code (call-start-batch call send-op 1 tag)))
+         (call-code (call-start-batch c-call send-op 1 tag)))
     (declare (ignore ops-plist))
     (unless (eql call-code :grpc-call-ok)
       (grpc-ops-free send-op 1)
       (error 'grpc-call-error :call-error call-code))
     (let ((cqp-p (completion-queue-pluck *completion-queue* tag)))
       (grpc-ops-free send-op 1)
+      (check-server-status
+       (call-c-ops call)
+       (getf (call-ops-plist call) :client-recv-status))
       cqp-p)))
 
-(defun client-close (call tag)
-  "Close the client side of a CALL. Takes in a TAG so we don't have to cons a new one."
-  (let* ((close-op (create-new-grpc-ops 1))
+(defun client-close (call)
+  "Close the client side of a CALL."
+  (declare (type call call))
+  (let* ((c-call (call-c-call call))
+         (tag (call-c-tag call))
+         (close-op (create-new-grpc-ops 1))
          (ops-plist (prepare-ops close-op nil :client-close t))
-         (call-code (call-start-batch call close-op 1 tag)))
+         (call-code (call-start-batch c-call close-op 1 tag)))
     (declare (ignore ops-plist))
     (unless (eql call-code :grpc-call-ok)
       (grpc-ops-free close-op 1)
       (error 'grpc-call-error :call-error call-code))
-    (let ((cqp-p (completion-queue-pluck *completion-queue* tag)))
-      (grpc-ops-free close-op 1)
-      cqp-p)))
+    (unless (completion-queue-pluck *completion-queue* tag)
+      (check-server-status
+       (call-c-ops call)
+       (getf (call-ops-plist call) :client-recv-status)))
+    (values)))
 
 (defun check-server-status (ops receive-status-on-client-index)
   "Verify the server status is :grpc-status-ok. Requires the OPS containing the
@@ -319,6 +344,38 @@ RECEIVE_STATUS_ON_CLIENT op and RECEIVE-STATUS-ON-CLIENT-INDEX in the ops."
          (recv-status-on-client-code ops receive-status-on-client-index)))
     (unless (eql server-status :grpc-status-ok)
       (error 'grpc-call-error :call-error server-status))))
+
+(defconstant +num-ops-for-starting-call+ 3)
+
+(defun start-grpc-call (channel service-method-name)
+    "Start a grpc call. Requires a pointer to a grpc CHANNEL object, and a SERVICE-METHOD-NAME
+string to direct the call to."
+  (let* ((num-ops-for-sending-message +num-ops-for-starting-call+)
+         (c-call (service-method-call channel service-method-name
+                                      *completion-queue*))
+         (ops (create-new-grpc-ops num-ops-for-sending-message))
+         (tag (cffi:foreign-alloc :int))
+         (ops-plist
+          (prepare-ops ops nil :send-metadata t
+                               :client-recv-status t
+                               :recv-metadata t)))
+    (call-start-batch c-call ops +num-ops-for-starting-call+ tag)
+    (make-call :c-call c-call
+               :c-tag tag
+               :c-ops ops
+               :ops-plist ops-plist)))
+
+(defun free-call-data (call)
+  "Free the call data stored in CALL-OBJ."
+  (declare (type call call))
+  (let* ((c-call (call-c-call call))
+         (tag (call-c-tag call))
+         (ops (call-c-ops call)))
+    (cffi:foreign-free tag)
+    (grpc-call-unref c-call)
+    ;; The number of ops used to start the call,
+    ;; see START-CALL.
+    (grpc-ops-free ops +num-ops-for-starting-call+)))
 
 (defun grpc-call (channel service-method-name bytes-to-send
                   server-stream client-stream)
@@ -329,36 +386,18 @@ BYTES-TO-SEND should be a list of byte-vectors each containing a message to
 send in a single call to the server. In the case of a server or bidirectional
 call we return a list a list of byte vectors each being a response from the server,
 otherwise it's a single byte vector list containing a single response."
-  (let* ((num-ops-for-sending-message 3)
-         (call (service-method-call channel service-method-name
-                                    *completion-queue*))
-         (ops (create-new-grpc-ops num-ops-for-sending-message))
-         (tag (cffi:foreign-alloc :int))
-         (ops-plist
-          (prepare-ops ops nil :send-metadata t
-                               :client-recv-status t
-                               :recv-metadata t)))
+  (let* ((call (start-grpc-call channel service-method-name)))
     (unwind-protect
          (progn
-           (call-start-batch call ops 3 tag)
            (if client-stream
                (loop for bytes in bytes-to-send
                      do
-                  (send-message call tag bytes)
-                  (check-server-status ops (getf ops-plist :client-recv-status)))
-               (unless (send-message call tag bytes-to-send)
-                 (check-server-status ops (getf ops-plist :client-recv-status))))
-           (unless (client-close call tag)
-             (check-server-status ops (getf ops-plist :client-recv-status)))
-           (cond
-             (server-stream
-              (loop for message = (receive-message call tag)
-                    while message
-                    collect message
-                    finally
-                 (check-server-status ops (getf ops-plist :client-recv-status))))
-             (t (or (receive-message call tag)
-                    (check-server-status ops (getf ops-plist :client-recv-status))))))
-      (cffi:foreign-free tag)
-      (grpc-call-unref call)
-      (grpc-ops-free ops num-ops-for-sending-message))))
+                  (send-message call bytes))
+               (send-message call bytes-to-send))
+           (client-close call)
+           (if server-stream
+               (loop for message = (receive-message call)
+                     while message
+                     collect message)
+               (receive-message call)))
+      (free-call-data call))))
