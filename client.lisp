@@ -289,7 +289,7 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
                                    response-byte-buffer index))
                         into message
                       finally
-                   (grpc-byte-buffer-destroy response-byte-buffer)
+                   ;;(grpc-byte-buffer-destroy response-byte-buffer)
                    (return message)))))
         (grpc-ops-free receive-op 1)
         (check-server-status
