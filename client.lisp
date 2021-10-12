@@ -268,15 +268,17 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
 (defun receive-message (call)
   "Receive a message from the server for a CALL."
   (declare (type call call))
-  (let* ((tag (call-c-tag call))
+  (let* ((tag (cffi:foreign-alloc :int))
          (c-call (call-c-call call))
          (receive-op (create-new-grpc-ops 1))
          (ops-plist (prepare-ops receive-op nil :recv-message t))
          (call-code (call-start-batch c-call receive-op 1 tag)))
     (unless (eql call-code :grpc-call-ok)
       (grpc-ops-free receive-op 1)
+      (cffi:foreign-free tag)
       (error 'grpc-call-error :call-error call-code))
     (when (completion-queue-pluck *completion-queue* tag)
+      (cffi:foreign-free tag)
       (let* ((response-byte-buffer
               (get-grpc-op-recv-message receive-op (getf ops-plist :recv-message)))
              (message
@@ -301,7 +303,7 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
   "Send a message encoded in BYTES-TO-SEND to the server through a CALL."
   (declare (type call call))
   (let* ((c-call (call-c-call call))
-         (tag (call-c-tag call))
+         (tag (cffi:foreign-alloc :int))
          (send-op (create-new-grpc-ops 1))
          (grpc-slice
           (convert-grpc-slice-to-grpc-byte-buffer
@@ -310,10 +312,12 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
          (call-code (call-start-batch c-call send-op 1 tag)))
     (declare (ignore ops-plist))
     (unless (eql call-code :grpc-call-ok)
+      (cffi:foreign-free tag)
       (grpc-ops-free send-op 1)
       (error 'grpc-call-error :call-error call-code))
     (let ((cqp-p (completion-queue-pluck *completion-queue* tag)))
       (grpc-ops-free send-op 1)
+      (cffi:foreign-free tag)
       (check-server-status
        (call-c-ops call)
        (getf (call-ops-plist call) :client-recv-status))
@@ -323,7 +327,7 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
   "Close the client side of a CALL."
   (declare (type call call))
   (let* ((c-call (call-c-call call))
-         (tag (call-c-tag call))
+         (tag (cffi:foreign-alloc :int))
          (close-op (create-new-grpc-ops 1))
          (ops-plist (prepare-ops close-op nil :client-close t))
          (call-code (call-start-batch c-call close-op 1 tag)))
@@ -331,11 +335,13 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
     (unless (eql call-code :grpc-call-ok)
       (grpc-ops-free close-op 1)
       (error 'grpc-call-error :call-error call-code))
-    (unless (completion-queue-pluck *completion-queue* tag)
-      (check-server-status
-       (call-c-ops call)
-       (getf (call-ops-plist call) :client-recv-status)))
-    (values)))
+    (let ((ok (completion-queue-pluck *completion-queue* tag)))
+      (cffi:foreign-free tag)
+      (unless ok
+        (check-server-status
+         (call-c-ops call)
+         (getf (call-ops-plist call) :client-recv-status)))
+      (values))))
 
 (defun check-server-status (ops receive-status-on-client-index)
   "Verify the server status is :grpc-status-ok. Requires the OPS containing the
@@ -371,6 +377,7 @@ string to direct the call to."
   (let* ((c-call (call-c-call call))
          (tag (call-c-tag call))
          (ops (call-c-ops call)))
+    (completion-queue-pluck *completion-queue* tag)
     (cffi:foreign-free tag)
     (grpc-call-unref c-call)
     ;; The number of ops used to start the call,

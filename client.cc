@@ -67,7 +67,7 @@ void* new_tag(int num) {
 }
 
 grpc_metadata_array* create_new_grpc_metadata_array() {
-  grpc_metadata_array* arr = new grpc_metadata_array;
+  grpc_metadata_array* arr = new grpc_metadata_array();
   grpc_metadata_array_init(arr);
   return arr;
 }
@@ -225,7 +225,7 @@ void lisp_grpc_server_make_close_op(grpc_op* op, int* cancelled,
 
 // This takes a string str and converts it to a grpc_slice.
 grpc_slice* convert_string_to_grpc_slice(const char* str) {
-  grpc_slice* slice = new grpc_slice;
+  grpc_slice* slice = new grpc_slice();
   *slice = grpc_slice_from_copied_string(str);
   return slice;
 }
@@ -233,17 +233,17 @@ grpc_slice* convert_string_to_grpc_slice(const char* str) {
 // This takes a grpc_slice 'slice' and converts it to a grpc_byte_buffer*
 // that can be sent to the server.
 grpc_byte_buffer* convert_grpc_slice_to_grpc_byte_buffer(grpc_slice* slice) {
-  grpc_byte_buffer* ret = new grpc_byte_buffer;
+  grpc_byte_buffer* ret = new grpc_byte_buffer();
   ret = grpc_raw_byte_buffer_create(slice, 1);
   return ret;
 }
 
 grpc_byte_buffer* create_empty_grpc_byte_buffer() {
-  return new grpc_byte_buffer;
+  return new grpc_byte_buffer();
 }
 
 grpc_slice* create_empty_grpc_slice() {
-  return new grpc_slice;
+  return new grpc_slice();
 }
 
 grpc_status_code* create_empty_grpc_status_code() {
@@ -264,7 +264,7 @@ char* convert_grpc_slice_to_string(grpc_slice* slice) {
 }
 
 grpc_slice* convert_bytes_to_grpc_slice(char* buf, size_t len) {
-  grpc_slice* slice = new grpc_slice;
+  grpc_slice* slice = new grpc_slice();
   *slice = grpc_slice_from_copied_buffer(buf, len);
   return slice;
 }
