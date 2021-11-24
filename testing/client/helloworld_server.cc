@@ -9,7 +9,7 @@
 #include <memory>
 #include <sstream>
 
-#include <third_party/absl/flags/parse.h>
+#include <absl/flags/parse.h>
 #include <absl/flags/flag.h>
 #include <absl/strings/ascii.h>
 #include <absl/strings/str_cat.h>
