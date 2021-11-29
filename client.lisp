@@ -201,6 +201,7 @@ macros and only call once."
     (setf *completion-queue* nil))
   (cffi:foreign-funcall "grpc_shutdown"))
 
+
 (defmacro with-insecure-channel
     ((bound-channel address) &body body)
   "Creates a gRPC insecure channel to ADDRESS. Binds the channel to BOUND-CHANNEL, runs BODY,
