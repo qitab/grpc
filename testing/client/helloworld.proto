@@ -6,7 +6,7 @@
 
 syntax = "proto3";
 
-package testing;
+package lisp.grpc.integration_testing;
 
 message HelloRequest {
   optional string name = 1;

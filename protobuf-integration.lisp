@@ -32,7 +32,7 @@ given a cl-protobufs method-descriptor."
         ;; it from the qualified name.
         (package-name
          (subseq (proto:proto-qualified-name method) 0
-                 (position #\. (proto:proto-qualified-name method)))))
+                 (position #\. (proto:proto-qualified-name method) :from-end t))))
     (concatenate 'string "/" package-name "." service-name "/" rpc-name)))
 
 (defgeneric start-call (channel method request response &key callback)

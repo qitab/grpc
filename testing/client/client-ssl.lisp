@@ -8,8 +8,8 @@
 
 (defpackage #:testing-client-ssl
   (:use #:common-lisp)
-  (:local-nicknames (#:testing #:cl-protobufs)
-                    (#:testing-grpc #:cl-protobufs)
+  (:local-nicknames (#:testing #:cl-protobufs.lisp.grpc.integration-testing)
+                    (#:testing-rpc #:cl-protobufs.lisp.grpc.integration-testing-rpc)
                     (#:log #:google.log)
                     (#:flag #:ace.flag))
   (:export #:main))
@@ -55,15 +55,15 @@
            :cert-chain cert-chain)))
 
       ;; Unary streaming
-      (let* ((message (cl-protobufs.testing:make-hello-request :name "Neo"))
-             (response (cl-protobufs.testing-rpc:call-say-hello channel message)))
-        (log:info "Response: ~A" (cl-protobufs.testing:hello-reply.message response)))
+      (let* ((message (testing:make-hello-request :name "Neo"))
+             (response (testing-rpc:call-say-hello channel message)))
+        (log:info "Response: ~A" (testing:hello-reply.message response)))
 
       ;; Server Streaming
-      (let* ((message (cl-protobufs.testing:make-hello-request :name "Neo"
-                                                               :num-responses 3))
-             (response (cl-protobufs.testing-rpc:call-say-hello-server-stream channel message)))
+      (let* ((message (testing:make-hello-request :name "Neo"
+                                                  :num-responses 3))
+             (response (testing-rpc:call-say-hello-server-stream channel message)))
         (loop for message in response
               do
-           (log:info "Response: ~A" (cl-protobufs.testing:hello-reply.message message)))))
+           (log:info "Response: ~A" (testing:hello-reply.message message)))))
     (grpc:shutdown-grpc)))

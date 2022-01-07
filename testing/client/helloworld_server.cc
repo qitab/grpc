@@ -30,9 +30,9 @@ using grpc::ServerWriter;
 using grpc::SslServerCredentials;
 using grpc::SslServerCredentialsOptions;
 using grpc::Status;
-using testing::HelloReply;
-using testing::HelloRequest;
-using testing::grpc_gen::Greeter;
+using lisp::grpc::integration_testing::HelloReply;
+using lisp::grpc::integration_testing::HelloRequest;
+using lisp::grpc::integration_testing::grpc_gen::Greeter;
 
 ABSL_FLAG(int32, port, 0 , "Port server listening on.");
 ABSL_FLAG(std::string, auth_mechanism, "", "Authentication mechanism.");
@@ -54,7 +54,7 @@ class GreeterServiceImpl final : public Greeter::Service {
       override {
     HelloReply reply = HelloReply();
     for(int i = 0; i < request->num_responses(); i++) {
-      reply.set_message(absl::StrCat("Hello ", request->name(), i));
+      reply.set_message(absl::StrCat("Hello ", request->name(), " ", i));
       stream->Write(reply);
     }
     return ::grpc::Status::OK;
@@ -81,7 +81,7 @@ class GreeterServiceImpl final : public Greeter::Service {
     while (stream->Read(&request)) {
       HelloReply reply = HelloReply();
       for(int i = 0; i < request.num_responses(); i++) {
-        reply.set_message(absl::StrCat("Hello ", request.name(), i));
+        reply.set_message(absl::StrCat("Hello ", request.name(), " ", i));
         stream->Write(reply);
       }
     }
