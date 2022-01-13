@@ -60,7 +60,7 @@ Parameters:
     (flet ((deserialize-result (bytes)
              (proto:deserialize-from-bytes
               output-type
-              (apply #' concatenate 'proto:byte-vector bytes))))
+              (apply #'concatenate 'proto:byte-vector bytes))))
       (if server-stream
           (mapcar #'deserialize-result response)
           (deserialize-result response)))))

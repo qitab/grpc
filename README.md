@@ -58,8 +58,6 @@ There are two different types of `mono-directional-streaming` RPC's:
 1. Server Side Streaming.
 2. Client Side Streaming.
 
-Currently only unary and server streaming RPC's are supported.
-
 See https://grpc.io/docs/what-is-grpc/core-concepts/#rpc-life-cycle  for details.
 
 #### Unary RPC
@@ -80,7 +78,7 @@ A client side streaming RPC sends some number of messages and receives a single 
 The `grpc-call` function takes in a list of vectors for `bytes-to-send`
 and returns an octet-vector corresponding to the received message.
 
-#### Biderectional Streaming RPC
+#### Bidirectional Streaming RPC
 
 A bidirectional streaming RPC sends any number of messages and receives any number of messages.
 The `grpc-call` function takes in a list of vectors for `bytes-to-send`
@@ -141,10 +139,10 @@ sent to a server implementing the `Greeter` service with:
       ...))
 ```
 
-This example can be found in testing/client/client-insecure.lisp.
+This example can be found in examples/client/client-insecure.lisp.
 
 ## Further Reading
 
 -   See https://grpc.io for more information on gRPC.
--   See testing/client/README.md for an example of how to run the example code.
+-   See examples/client/README.md for an example of how to run the example code.
 -   For more on Cl-Protobufs read  https://github.com/qitab/cl-protobufs

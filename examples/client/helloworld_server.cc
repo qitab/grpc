@@ -18,7 +18,7 @@
 #include <grpcpp/server.h>
 #include <grpcpp/server_builder.h>
 #include <grpcpp/server_context.h>
-#include "testing/client/helloworld.grpc.pb.h"
+#include "examples/client/helloworld.grpc.pb.h"
 
 using grpc::InsecureServerCredentials;
 using grpc::Server;
