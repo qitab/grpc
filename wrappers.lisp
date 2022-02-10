@@ -69,23 +69,14 @@ grpc_call_start_batch."
   :GRPC-STATUS-UNAUTHENTICATED)
 
 ;; gRPC Client Channel wrappers
-(defun c-grpc-client-new-insecure-channel (target args)
-  "Creates a client channel to TARGET with ARGS."
-  (cffi:foreign-funcall "grpc_insecure_channel_create"
-                        :string target
-                        :pointer args
-                        :pointer (cffi-sys:null-pointer)
-                        :pointer))
-
-(defun c-grpc-client-new-secure-channel (creds target args)
+(defun c-grpc-client-new-channel (creds target args)
   "Creates a secure channel to TARGET using the passed-in
 credentials CREDS. Additional channel level configuration MAY be provided
 by grpc_channel_ARGS."
-  (cffi:foreign-funcall "grpc_secure_channel_create"
-                        :pointer creds
+  (cffi:foreign-funcall "grpc_channel_create"
                         :string target
+                        :pointer creds
                         :pointer args
-                        :pointer (cffi-sys:null-pointer)
                         :pointer))
 
 (defun c-grpc-client-new-default-channel (call-creds user-provided-audience)

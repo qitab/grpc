@@ -20,13 +20,11 @@ manage grpc calls.")
 
 ;; Functions for gRPC Client
 
-(defun create-channel (target &optional creds (args (cffi:null-pointer)))
+(defun create-channel (target &optional (creds (cffi:null-pointer)) (args (cffi:null-pointer)))
   "A wrapper to create a channel for the client to TARGET with
 additional args ARGS for client information. If CREDS is passed then a secure
 channel will be created using CREDS else an insecure channel will be used."
-  (if creds
-      (c-grpc-client-new-secure-channel creds target args)
-      (c-grpc-client-new-insecure-channel target args)))
+  (c-grpc-client-new-channel creds target args))
 
 (defun service-method-call (channel call-name cq)
   "A wrapper to create a grpc_call pointer that will be used to call CALL-NAME
@@ -36,22 +34,22 @@ on the CHANNEL provided and store the result in the completion queue CQ."
                         :pointer))
 
 (cffi:defcfun ("lisp_grpc_call_start_batch" call-start-batch)
-  grpc-call-error
-  (call :pointer)
-  (ops :pointer)
-  (num-ops :int)
-  (tag :pointer))
+              grpc-call-error
+              (call :pointer)
+              (ops :pointer)
+              (num-ops :int)
+              (tag :pointer))
 
 (cffi:defcfun ("lisp_grpc_completion_queue_pluck" completion-queue-pluck)
-  :bool
-  (completion-queue :pointer)
-  (tag :pointer))
+              :bool
+              (completion-queue :pointer)
+              (tag :pointer))
 
 ;; Wrappers to create operations
 
 (defun make-send-metadata-op (op metadata
-                        &key count flag
-                             index)
+                              &key count flag
+                              index)
   "Sets OP[INDEX] to a Send Initial Metadata operation by adding metadata
 METADATA, the count of metadata COUNT, and the flag FLAG."
   (cffi:foreign-funcall "lisp_grpc_make_send_metadata_op"
@@ -132,15 +130,15 @@ containing keys being the op type and values being the index."
     ops-plist))
 
 (cffi:defcfun ("lisp_grpc_op_recv_message" get-grpc-op-recv-message) :pointer
-  (op :pointer)
-  (index :int))
+              (op :pointer)
+              (index :int))
 
 ;; Auxiliary Functions
 
 (cffi:defcfun ("create_new_grpc_ops" create-new-grpc-ops) :pointer
-  "Creates a grpc_op* that is used to add NUM-OPS operations to,
+              "Creates a grpc_op* that is used to add NUM-OPS operations to,
 these operation guide the interaction between the client and server."
-  (num-ops :int))
+              (num-ops :int))
 
 (defun convert-metadata-flag-to-integer (flag)
   "Converts FLAG, a metadata symbol, to its integer equivalent."
@@ -173,11 +171,11 @@ grpc_slice*."
   (let* ((slice-string-pointer (cffi:foreign-funcall
                                 "convert_grpc_slice_to_string" :pointer slice
                                                                :pointer)))
-  (cffi:foreign-array-to-lisp slice-string-pointer
-                              (list :array :uint8
-                                    (1+ (cffi:foreign-funcall
-                                         "strlen"
-                                         :pointer slice-string-pointer :int))))))
+    (cffi:foreign-array-to-lisp slice-string-pointer
+                                (list :array :uint8
+                                      (1+ (cffi:foreign-funcall
+                                           "strlen"
+                                           :pointer slice-string-pointer :int))))))
 
 ;; Exported Functions
 
@@ -284,12 +282,12 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
              (message
               (unless (cffi:null-pointer-p response-byte-buffer)
                 (loop for index from 0
-                        to (1- (get-grpc-byte-buffer-slice-buffer-count
-                                response-byte-buffer))
+                      to (1- (get-grpc-byte-buffer-slice-buffer-count
+                              response-byte-buffer))
                       collecting (convert-grpc-slice-to-bytes
                                   (get-grpc-slice-from-grpc-byte-buffer
                                    response-byte-buffer index))
-                        into message
+                      into message
                       finally
                    (grpc-byte-buffer-destroy response-byte-buffer)
                    (return message)))))
@@ -354,7 +352,7 @@ RECEIVE_STATUS_ON_CLIENT op and RECEIVE-STATUS-ON-CLIENT-INDEX in the ops."
 (defconstant +num-ops-for-starting-call+ 3)
 
 (defun start-grpc-call (channel service-method-name)
-    "Start a grpc call. Requires a pointer to a grpc CHANNEL object, and a SERVICE-METHOD-NAME
+  "Start a grpc call. Requires a pointer to a grpc CHANNEL object, and a SERVICE-METHOD-NAME
 string to direct the call to."
   (let* ((num-ops-for-sending-message +num-ops-for-starting-call+)
          (c-call (service-method-call channel service-method-name
