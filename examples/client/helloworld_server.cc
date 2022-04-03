@@ -13,6 +13,7 @@
 #include <absl/flags/flag.h>
 #include <absl/strings/ascii.h>
 #include <absl/strings/str_cat.h>
+#include "third_party/absl/strings/string_view.h"
 #include <grpc/grpc.h>
 #include <grpcpp/security/server_credentials.h>
 #include <grpcpp/server.h>
@@ -90,7 +91,7 @@ class GreeterServiceImpl final : public Greeter::Service {
 
 };
 
-std::string readFileIntoString(const std::string& path) {
+std::string readFileIntoString(absl::string_view path) {
   std::ifstream input_file(path);
   if (!input_file.is_open()) {
     std::cerr << "Could not open the file - '" << path << "'" << std::endl;
