@@ -333,3 +333,8 @@ before freeing ops."
 (cffi:defcfun ("grpc_byte_buffer_slice_buffer_count"
                get-grpc-byte-buffer-slice-buffer-count) :int
   (op :pointer))
+
+
+(cffi:defcfun ("grpc_insecure_credentials_create"
+               grpc-insecure-credentials-create)
+  :pointer)

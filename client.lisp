@@ -203,7 +203,8 @@ macros and only call once."
     ((bound-channel address) &body body)
   "Creates a gRPC insecure channel to ADDRESS. Binds the channel to BOUND-CHANNEL, runs BODY,
 and returns its values. After the body has run, the channel is destroyed."
-  `(let ((,bound-channel (create-channel ,address)))
+  `(let ((,bound-channel (create-channel
+                          ,address (grpc::grpc-insecure-credentials-create))))
      (unwind-protect (progn ,@body)
        (grpc-channel-destroy ,bound-channel))))
 

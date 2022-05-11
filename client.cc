@@ -10,8 +10,6 @@
 #include <cstddef>
 
 #include <grpc/grpc.h>
-#include <grpc/grpc_security.h>
-#include <grpc/grpc_security_constants.h>
 #include <grpc/byte_buffer.h>
 #include <grpc/impl/codegen/gpr_types.h>
 #include <grpc/impl/codegen/grpc_types.h>
