@@ -39,7 +39,7 @@ jobs:
       - name: make cmake/build                                                                                                                                                                                                                                                      
         run: | 
           cd grpc
-          mkdir -p cmake/build
+          sudo mkdir -p cmake/build
          
       - name: Build and install gRPC c++                                                                                                                                                                                                                                                  
         run: |                                                                                                                                                                                                                                                                            
