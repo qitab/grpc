@@ -37,13 +37,11 @@ jobs:
         run: git clone --recurse-submodules -b v1.46.3 --depth 1 --shallow-submodules https://github.com/grpc/grpc                                                                                                                                                                        
                                      
       - name: make cmake/build                                                                                                                                                                                                                                                      
-        run: cd grpc & sudo mkdir -p cmake/build
+        run: cd grpc & sudo mkdir -p cmake/build & ls
          
       - name: Build and install gRPC c++                                                                                                                                                                                                                                                  
         run: |                                                                                                                                                                                                                                                                            
           pushd cmake/build
-          ls 
-          ls cmake
           cmake -DgRPC_INSTALL=ON \                                                                                                                                                                                                                                                       
            -DgRPC_BUILD_TESTS=OFF \                                                                                                                                                                                                                                                       
            -DBUILD_SHARED_LIBS=ON \                                                                                                                                                                                                                                                       
