@@ -37,7 +37,7 @@ jobs:
         run: git clone --recurse-submodules -b v1.46.3 --depth 1 --shallow-submodules https://github.com/grpc/grpc                                                                                                                                                                        
                                      
       - name: make cmake/build                                                                                                                                                                                                                                                      
-        run: cd grpc & sudo mkdir -p cmake/build & ls
+        run: cd grpc && sudo mkdir -p cmake/build && ls
          
       - name: Build and install gRPC c++                                                                                                                                                                                                                                                  
         run: |                                                                                                                                                                                                                                                                            
