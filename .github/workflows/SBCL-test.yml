@@ -41,7 +41,9 @@ jobs:
          
       - name: Build and install gRPC c++                                                                                                                                                                                                                                                  
         run: |                                                                                                                                                                                                                                                                            
-          pushd cmake/build                                                                                                                                                                                                                                                               
+          pushd cmake/build
+          ls 
+          ls cmake
           cmake -DgRPC_INSTALL=ON \                                                                                                                                                                                                                                                       
            -DgRPC_BUILD_TESTS=OFF \                                                                                                                                                                                                                                                       
            -DBUILD_SHARED_LIBS=ON \                                                                                                                                                                                                                                                       
