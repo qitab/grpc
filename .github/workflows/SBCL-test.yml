@@ -52,6 +52,6 @@ jobs:
                                                                                                                                                                                                                                                                                           
       - name: Make Lisp gRPC                                                                                                                                                                                                                                                              
         run: |
-          export PKG_CONFIG_PATH=/libs/opt/pkconfig/:$PKG_CONFIG_PATH
+          export PKG_CONFIG_PATH=/lib/pkgconfig/:$PKG_CONFIG_PATH
           cd $GITHUB_WORKSPACE/quicklisp/local-projects/grpc                                                                                                                                                                                                                              
           make                                                                                                                                                                                                                                                                            
