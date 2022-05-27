@@ -41,14 +41,13 @@ jobs:
           cd grpc &&
           mkdir cmake/build && 
           pushd cmake/build &&
-          cmake -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=/usr/local/ ../.. &&                                                                                                                                                                                                                                                                         
-          make -j 4 &&                                                                                                                                                                                                                                                                        
-          sudo make install &&                                                                                                                                                                                                                                                                    
-          popd &&
-          sudo ldconfig                                                                                                                                                                                                                                                                   
+          cmake -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=/usr/local/ ../.. &&
+          make -j 4 &&
+          sudo make install && 
+          popd                                                                                                                                                                                                                                                              
                                                                                                                                                                                                                                                                                           
       - name: Make Lisp gRPC                                                                                                                                                                                                                                                              
         run: |
           export PKG_CONFIG_PATH=/lib/pkgconfig/:$PKG_CONFIG_PATH
-          cd $GITHUB_WORKSPACE/quicklisp/local-projects/grpc                                                                                                                                                                                                                              
+          cd $GITHUB_WORKSPACE/quicklisp/local-projects/grpc
           sudo make                                                                                                                                                                                                                                                                            
