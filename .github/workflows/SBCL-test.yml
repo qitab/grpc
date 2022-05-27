@@ -51,4 +51,4 @@ jobs:
         run: |
           export PKG_CONFIG_PATH=/lib/pkgconfig/:$PKG_CONFIG_PATH
           cd $GITHUB_WORKSPACE/quicklisp/local-projects/grpc                                                                                                                                                                                                                              
-          make                                                                                                                                                                                                                                                                            
+          sudo make                                                                                                                                                                                                                                                                            
