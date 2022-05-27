@@ -38,18 +38,18 @@ jobs:
                                 
       - name: Build and install gRPC c++                                                                                                                                                                                                                                                  
         run: |       
-          cd grpc 
-          mkdir cmake 
-          cd cmake
-          mkdir build 
-          cd ../..
-          pushd cmake/build 
+          cd grpc &&
+          mkdir cmake && 
+          cd cmake &&
+          mkdir build && 
+          cd ../.. &&
+          pushd cmake/build &&
           cmake -DgRPC_INSTALL=ON \                                                                                                                                                                                                                                                       
            -DgRPC_BUILD_TESTS=OFF \                                                                                                                                                                                                                                                       
            -DBUILD_SHARED_LIBS=ON \                                                                                                                                                                                                                                                       
-           ../..                                                                                                                                                                                                                                                                          
-          make -j                                                                                                                                                                                                                                                                         
-          make install                                                                                                                                                                                                                                                                    
+           ../.. &&                                                                                                                                                                                                                                                                         
+          make -j &&                                                                                                                                                                                                                                                                        
+          make install &&                                                                                                                                                                                                                                                                    
           popd                                                                                                                                                                                                                                                                            
           cd ..                                                                                                                                                                                                                                                                           
                                                                                                                                                                                                                                                                                           
