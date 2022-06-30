@@ -140,16 +140,6 @@ containing keys being the op type and values being the index."
 these operation guide the interaction between the client and server."
               (num-ops :int))
 
-(defun convert-metadata-flag-to-integer (flag)
-  "Converts FLAG, a metadata symbol, to its integer equivalent."
-  (case flag (grpc-write-through-flag #x4)
-        (grpc-metadata-idempotent-flag #x10)
-        (grpc-metadata-wait-for-ready-flag #x20)
-        (grpc-metadata-cacheable-request-flag #x40)
-        (grpc-metadata-wait-for-ready-explicitly-set-flag #x80)
-        (grpc-metadata-corked-flag #x100)
-        (otherwise flag)))
-
 (defun convert-grpc-slice-to-grpc-byte-buffer (slice)
   "Takes a grpc_slice* SLICE and returns a pointer to the corresponding
 grpc_byte_buffer*."

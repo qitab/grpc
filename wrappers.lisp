@@ -7,7 +7,7 @@
 ;;;; Lisp wrappers
 
 (in-package #:grpc)
-
+ 
 ;; gRPC Enums
 (cffi:defcenum grpc-security-level
   "Security levels of grpc transport security. It represents an inherent
@@ -334,7 +334,16 @@ before freeing ops."
                get-grpc-byte-buffer-slice-buffer-count) :int
   (op :pointer))
 
-
 (cffi:defcfun ("grpc_insecure_credentials_create"
                grpc-insecure-credentials-create)
   :pointer)
+
+(defun convert-metadata-flag-to-integer (flag)
+  "Converts FLAG, a metadata symbol, to its integer equivalent."
+  (case flag (grpc-write-through-flag #x4)
+        (grpc-metadata-idempotent-flag #x10)
+        (grpc-metadata-wait-for-ready-flag #x20)
+        (grpc-metadata-cacheable-request-flag #x40)
+        (grpc-metadata-wait-for-ready-explicitly-set-flag #x80)
+        (grpc-metadata-corked-flag #x100)
+        (otherwise flag)))
