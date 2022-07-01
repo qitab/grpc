@@ -104,7 +104,7 @@ to the server."
                     &key
                     send-metadata send-message client-close
                     client-recv-status recv-metadata
-                    recv-message)
+                    recv-message server-send-status)
   "Prepares OPS to send MESSAGE to the server. The keys SEND-METADATA
 SEND-MESSAGE CLIENT-CLOSE CLIENT-RECV-STATUS RECV-METADATA RECV-MESSAGE
 are all different types of ops that the user may want. Returns a plist
@@ -126,7 +126,11 @@ containing keys being the op type and values being the index."
       (when recv-metadata
         (make-recv-metadata-op ops :index (next-marker :recv-metadata)))
       (when recv-message
-        (make-recv-message-op ops :flag 0 :index (next-marker :recv-message))))
+        (make-recv-message-op ops :flag 0 :index (next-marker :recv-message)))
+      (when server-send-status
+        (make-send-status-from-server-op ops (cffi:null-pointer)
+                               :count 0 :status server-send-status :flag 0
+                               :index (next-marker :server-send-status))))
     ops-plist))
 
 (cffi:defcfun ("lisp_grpc_op_recv_message" get-grpc-op-recv-message) :pointer
