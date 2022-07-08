@@ -12,7 +12,12 @@ jobs:
   test:                                                                                                                                                                                                                                                                                   
     runs-on: ubuntu-latest                                                                                                                                                                                                                                                                
                                                                                                                                                                                                                                                                                           
-    steps:                                                                                                                                                                                                                                                                                
+    steps:
+      - uses: actions/checkout@v2
+      - uses: eWaterCycle/setup-grpc@v5
+        with:
+          grpc-version: 1.30.2
+
       - name: Download sbcl                                                                                                                                                                                                                                                               
         run: sudo apt install sbcl                                                                                                                                                                                                                                                        
                                                                                                                                                                                                                                                                                           
@@ -28,25 +33,8 @@ jobs:
         with:                                                                                                                                                                                                                                                                             
           path: quicklisp/local-projects/grpc                                                                                                                                                                                                                                             
                                                                                                                                                                                                                                                                                           
-      - name: Install cmake & required tooling                                                                                                                                                                                                                                            
-        run: |                                                                                                                                                                                                                                                                            
-          sudo apt install -y cmake                                                                                                                                                                                                                                                       
-          sudo apt install -y build-essential autoconf libtool pkg-config                                                                                                                                                                                                                 
-                                                                                                                                                                                                                                                                                          
-      - name: Clone gRPC Github repo                                                                                                                                                                                                                                                      
-        run: git clone --recurse-submodules -b v1.46.3 --depth 1 --shallow-submodules https://github.com/grpc/grpc                                                                                                                                                                        
-                                
       - name: Build and install gRPC c++                                                                                                                                                                                                                                                  
         run: |       
-          cd grpc &&
-          mkdir cmake/build && 
-          pushd cmake/build &&
-          cmake -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=/usr/local/ ../.. &&
-          make -j 4 &&
-          sudo make install && 
-          sudo ldconfig &&
-          export PKG_CONFIG_PATH=/lib/pkgconfig/:$PKG_CONFIG_PATH
           cd $GITHUB_WORKSPACE/quicklisp/local-projects/grpc
           sudo make    
-          popd
                                                                                                                                                                                                                                                                          
