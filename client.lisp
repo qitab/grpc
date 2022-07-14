@@ -34,22 +34,22 @@ on the CHANNEL provided and store the result in the completion queue CQ."
                         :pointer))
 
 (cffi:defcfun ("lisp_grpc_call_start_batch" call-start-batch)
-              grpc-call-error
-              (call :pointer)
-              (ops :pointer)
-              (num-ops :int)
-              (tag :pointer))
+  grpc-call-error
+  (call :pointer)
+  (ops :pointer)
+  (num-ops :int)
+  (tag :pointer))
 
 (cffi:defcfun ("lisp_grpc_completion_queue_pluck" completion-queue-pluck)
-              :bool
-              (completion-queue :pointer)
-              (tag :pointer))
+  :bool
+  (completion-queue :pointer)
+  (tag :pointer))
 
 ;; Wrappers to create operations
 
 (defun make-send-metadata-op (op metadata
                               &key count flag
-                              index)
+                                index)
   "Sets OP[INDEX] to a Send Initial Metadata operation by adding metadata
 METADATA, the count of metadata COUNT, and the flag FLAG."
   (cffi:foreign-funcall "lisp_grpc_make_send_metadata_op"
@@ -100,15 +100,37 @@ to the server."
                         :int index
                         :void))
 
+(defun make-send-status-from-server-op (op &key metadata count status flag index)
+  "Sets OP[INDEX] to a Send Status from server operation by adding metadata
+METADATA, the server STATUS, the count of metadata COUNT, and the flag FLAG."
+  (cffi:foreign-funcall "lisp_grpc_make_send_status_from_server_op"
+                        :pointer op
+                        :pointer metadata
+                        :int count
+                        grpc-status-code status
+                        :int flag
+                        :int index
+                        :void))
+
+(defun make-recv-close-on-server-op (op &key cancelled flag index)
+  "Sets OP[INDEX] to a Receive Close on Server operation by adding cancelled CANCELLED
+and the flag FLAG"
+  (cffi:foreign-funcall "lisp_grpc_server_make_close_op"
+                        :pointer op
+                        :pointer cancelled
+                        :int flag
+                        :int index
+                        :void))
+
 (defun prepare-ops (ops message
                     &key
-                    send-metadata send-message client-close
-                    client-recv-status recv-metadata
-                    recv-message)
+                      send-metadata send-message client-close
+                      client-recv-status recv-metadata
+                      recv-message server-recv-close server-send-status)
   "Prepares OPS to send MESSAGE to the server. The keys SEND-METADATA
 SEND-MESSAGE CLIENT-CLOSE CLIENT-RECV-STATUS RECV-METADATA RECV-MESSAGE
-are all different types of ops that the user may want. Returns a plist
-containing keys being the op type and values being the index."
+SERVER-CLOSE SERVER-SEND-STATUS are all different types of ops that the user may
+want. Returns a plist containing keys being the op type and values being the index."
   (let ((cur-index -1)
         ops-plist)
     (flet ((next-marker (message-type)
@@ -126,19 +148,23 @@ containing keys being the op type and values being the index."
       (when recv-metadata
         (make-recv-metadata-op ops :index (next-marker :recv-metadata)))
       (when recv-message
-        (make-recv-message-op ops :flag 0 :index (next-marker :recv-message))))
+        (make-recv-message-op ops :flag 0 :index (next-marker :recv-message)))
+      (when server-recv-close
+        (make-recv-close-on-server-op ops :cancelled (cffi:foreign-alloc :int) :flag 0 :index (next-marker :server-close)))
+      (when server-send-status
+        (make-send-status-from-server-op ops :metadata (cffi:null-pointer) :count 0 :status server-send-status :flag 0 :index (next-marker :server-send-status))))
     ops-plist))
 
 (cffi:defcfun ("lisp_grpc_op_recv_message" get-grpc-op-recv-message) :pointer
-              (op :pointer)
-              (index :int))
+  (op :pointer)
+  (index :int))
 
 ;; Auxiliary Functions
 
 (cffi:defcfun ("create_new_grpc_ops" create-new-grpc-ops) :pointer
-              "Creates a grpc_op* that is used to add NUM-OPS operations to,
+  "Creates a grpc_op* that is used to add NUM-OPS operations to,
 these operation guide the interaction between the client and server."
-              (num-ops :int))
+  (num-ops :int))
 
 (defun convert-grpc-slice-to-grpc-byte-buffer (slice)
   "Takes a grpc_slice* SLICE and returns a pointer to the corresponding
@@ -160,7 +186,7 @@ grpc_slice*."
   "Takes SLICE and returns its content as a vector of bytes."
   (let* ((slice-string-pointer (cffi:foreign-funcall
                                 "convert_grpc_slice_to_string" :pointer slice
-                                                               :pointer)))
+                                :pointer)))
     (cffi:foreign-array-to-lisp slice-string-pointer
                                 (list :array :uint8
                                       (1+ (cffi:foreign-funcall
@@ -200,12 +226,12 @@ and returns its values. After the body has run, the channel is destroyed."
 
 (defmacro with-ssl-channel
     ((bound-channel (address (&key
-                              (pem-root-certs nil)
-                              (private-key nil)
-                              (cert-chain nil)
-                              (verify-peer-callback (cffi:null-pointer))
-                              (verify-peer-callback-userdata (cffi:null-pointer))
-                              (verify-peer-destruct (cffi:null-pointer)))))
+                                (pem-root-certs nil)
+                                (private-key nil)
+                                (cert-chain nil)
+                                (verify-peer-callback (cffi:null-pointer))
+                                (verify-peer-callback-userdata (cffi:null-pointer))
+                                (verify-peer-destruct (cffi:null-pointer)))))
      &body body)
   "Creates a gRPC secure channel to ADDRESS using SSL, which requires parameters to create the
 SSL credentials and binds the channel to BOUND-CHANNEL. Then, BODY is run and returns its values.
@@ -228,14 +254,14 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
                           (cffi:null-pointer)))
           (ssl-pem-key-cert-pair (create-grpc-ssl-pem-key-cert-pair private-key cert-chain))
           (ssl-verify-peer-options
-           (create-grpc-ssl-verify-peer-options ,verify-peer-callback
-                                                ,verify-peer-callback-userdata
-                                                ,verify-peer-destruct))
+            (create-grpc-ssl-verify-peer-options ,verify-peer-callback
+                                                 ,verify-peer-callback-userdata
+                                                 ,verify-peer-destruct))
           (ssl-credentials
-           (c-grpc-client-new-ssl-credentials
-            pem-root-certs
-            ssl-pem-key-cert-pair
-            ssl-verify-peer-options))
+            (c-grpc-client-new-ssl-credentials
+             pem-root-certs
+             ssl-pem-key-cert-pair
+             ssl-verify-peer-options))
           (,bound-channel (create-channel ,address ssl-credentials)))
      (unwind-protect (progn ,@body)
        (cffi:foreign-string-free pem-root-certs)
@@ -269,19 +295,19 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
     (when (completion-queue-pluck *completion-queue* tag)
       (cffi:foreign-free tag)
       (let* ((response-byte-buffer
-              (get-grpc-op-recv-message receive-op (getf ops-plist :recv-message)))
+               (get-grpc-op-recv-message receive-op (getf ops-plist :recv-message)))
              (message
-              (unless (cffi:null-pointer-p response-byte-buffer)
-                (loop for index from 0
-                      to (1- (get-grpc-byte-buffer-slice-buffer-count
-                              response-byte-buffer))
-                      collecting (convert-grpc-slice-to-bytes
-                                  (get-grpc-slice-from-grpc-byte-buffer
-                                   response-byte-buffer index))
-                      into message
-                      finally
-                   (grpc-byte-buffer-destroy response-byte-buffer)
-                   (return message)))))
+               (unless (cffi:null-pointer-p response-byte-buffer)
+                 (loop for index from 0
+                         to (1- (get-grpc-byte-buffer-slice-buffer-count
+                                 response-byte-buffer))
+                       collecting (convert-grpc-slice-to-bytes
+                                   (get-grpc-slice-from-grpc-byte-buffer
+                                    response-byte-buffer index))
+                         into message
+                       finally
+                          (grpc-byte-buffer-destroy response-byte-buffer)
+                          (return message)))))
         (grpc-ops-free receive-op 1)
         (check-server-status
          (call-c-ops call)
@@ -295,8 +321,8 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
          (tag (cffi:foreign-alloc :int))
          (send-op (create-new-grpc-ops 1))
          (grpc-slice
-          (convert-grpc-slice-to-grpc-byte-buffer
-           (convert-bytes-to-grpc-slice bytes-to-send)))
+           (convert-grpc-slice-to-grpc-byte-buffer
+            (convert-bytes-to-grpc-slice bytes-to-send)))
          (ops-plist (prepare-ops send-op grpc-slice :send-message t))
          (call-code (call-start-batch c-call send-op 1 tag)))
     (declare (ignore ops-plist))
@@ -336,7 +362,7 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
   "Verify the server status is :grpc-status-ok. Requires the OPS containing the
 RECEIVE_STATUS_ON_CLIENT op and RECEIVE-STATUS-ON-CLIENT-INDEX in the ops."
   (let ((server-status
-         (recv-status-on-client-code ops receive-status-on-client-index)))
+          (recv-status-on-client-code ops receive-status-on-client-index)))
     (unless (eql server-status :grpc-status-ok)
       (error 'grpc-call-error :call-error server-status))))
 
@@ -351,9 +377,9 @@ string to direct the call to."
          (ops (create-new-grpc-ops num-ops-for-sending-message))
          (tag (cffi:foreign-alloc :int))
          (ops-plist
-          (prepare-ops ops nil :send-metadata t
-                               :client-recv-status t
-                               :recv-metadata t)))
+           (prepare-ops ops nil :send-metadata t
+                                :client-recv-status t
+                                :recv-metadata t)))
     (call-start-batch c-call ops +num-ops-for-starting-call+ tag)
     (make-call :c-call c-call
                :c-tag tag
@@ -388,7 +414,7 @@ otherwise it's a single byte vector list containing a single response."
            (if client-stream
                (loop for bytes in bytes-to-send
                      do
-                  (send-message call bytes))
+                        (send-message call bytes))
                (send-message call bytes-to-send))
            (client-close call)
            (if server-stream

@@ -51,11 +51,9 @@ grpc_call_error lisp_grpc_call_start_batch(grpc_call* call, const grpc_op* ops,
 // in lisp_grpc_call_start_batch.
 // This function will return a grpc_event* which will be checked to see if
 // the operations were successful.
-bool lisp_grpc_completion_queue_pluck(grpc_completion_queue* cq,
-                                             void* tag) {
-  grpc_event event = grpc_completion_queue_pluck(cq, tag,
-                                     gpr_inf_future(GPR_CLOCK_MONOTONIC),
-                                     nullptr);
+bool lisp_grpc_completion_queue_pluck(grpc_completion_queue* cq, void* tag) {
+  grpc_event event = grpc_completion_queue_pluck(
+      cq, tag, gpr_inf_future(GPR_CLOCK_MONOTONIC), nullptr);
   return event.success != 0;
 }
 
@@ -81,7 +79,7 @@ void grpc_ops_free(grpc_op* ops, int size) {
   int i = 0;
   for (i = 0; i < size; i++) {
     if (ops[i].op == GRPC_OP_SEND_INITIAL_METADATA) {
-       delete ops[i].data.send_initial_metadata.metadata;
+      delete ops[i].data.send_initial_metadata.metadata;
     }
     if (ops[i].op == GRPC_OP_SEND_MESSAGE) {
       grpc_byte_buffer_destroy(ops[i].data.send_message.send_message);
@@ -135,8 +133,9 @@ void lisp_grpc_make_recv_message_op(grpc_op* op, int flags, int index) {
 }
 
 grpc_byte_buffer* lisp_grpc_op_recv_message(grpc_op* op, int index) {
-    return op[index].data.recv_message.recv_message == nullptr ?
-        nullptr : *op[index].data.recv_message.recv_message;
+  return op[index].data.recv_message.recv_message == nullptr
+             ? nullptr
+             : *op[index].data.recv_message.recv_message;
 }
 
 // Takes in a preallocated grpc_op array.
@@ -196,12 +195,11 @@ grpc_slice* lisp_grpc_op_get_status_details(grpc_op* ops, int index) {
 void lisp_grpc_server_make_send_status_op(grpc_op* op,
                                           grpc_metadata* trailing_metadata,
                                           uint32_t metadata_count,
-                                          grpc_status_code* status,
-                                          uint32_t flags,
-                                          int index) {
+                                          grpc_status_code status,
+                                          uint32_t flags, int index) {
   op[index].op = GRPC_OP_SEND_STATUS_FROM_SERVER;
   op[index].data.send_status_from_server.trailing_metadata = trailing_metadata;
-  op[index].data.send_status_from_server.status = *status;
+  op[index].data.send_status_from_server.status = status;
   op[index].data.send_status_from_server.trailing_metadata_count =
       metadata_count;
   op[index].flags = flags;
@@ -215,6 +213,23 @@ void lisp_grpc_server_make_close_op(grpc_op* op, int* cancelled,
                                     uint32_t flags, int index) {
   op[index].op = GRPC_OP_RECV_CLOSE_ON_SERVER;
   op[index].data.recv_close_on_server.cancelled = cancelled;
+  op[index].flags = flags;
+  op[index].reserved = nullptr;
+}
+
+// Takes in a preallocated grpc_op array.
+// Stores the given metadata, flags, and count for the
+// GRPC_OP_SEND_STATUS_FROM_SERVER operation.
+void lisp_grpc_make_send_status_from_server_op(grpc_op* op,
+                                               grpc_metadata* trailing_metadata,
+                                               uint32_t metadata_count,
+                                               grpc_status_code status,
+                                               uint32_t flags, int index) {
+  op[index].op = GRPC_OP_SEND_STATUS_FROM_SERVER;
+  op[index].data.send_status_from_server.trailing_metadata = trailing_metadata;
+  op[index].data.send_status_from_server.trailing_metadata_count =
+      metadata_count;
+  op[index].data.send_status_from_server.status = status;
   op[index].flags = flags;
   op[index].reserved = nullptr;
 }
