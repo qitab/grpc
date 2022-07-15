@@ -54,10 +54,10 @@ on the CHANNEL provided and store the result in the completion queue CQ."
 METADATA, the count of metadata COUNT, and the flag FLAG."
   (cffi:foreign-funcall "lisp_grpc_make_send_metadata_op"
                         :pointer op
+                        :int index
                         :pointer metadata
                         :int count
                         :int (convert-metadata-flag-to-integer flag)
-                        :int index
                         :void))
 
 (defun make-send-message-op (op message &key index)
@@ -65,24 +65,24 @@ METADATA, the count of metadata COUNT, and the flag FLAG."
 to the server."
   (cffi:foreign-funcall "lisp_grpc_make_send_message_op"
                         :pointer op
-                        :pointer message
                         :int index
+                        :pointer message
                         :void))
 
 (defun make-client-recv-status-op (op &key flag index)
   "Sets OP[INDEX] to a 'RECEIVE STATUS' operation, sets the FLAG of the op."
   (cffi:foreign-funcall "lisp_grpc_client_make_recv_status_op"
                         :pointer op
-                        :int flag
                         :int index
+                        :int flag
                         :void))
 
 (defun make-recv-message-op (op &key flag index)
   "Sets OP[INDEX] to a Receive Message operation with FLAG."
   (cffi:foreign-funcall "lisp_grpc_make_recv_message_op"
                         :pointer op
-                        :int flag
                         :int index
+                        :int flag
                         :void))
 
 (defun make-recv-metadata-op (op &key index)
@@ -96,8 +96,8 @@ to the server."
   "Sets OP[INDEX] to a Send Close From Client operation with FLAG."
   (cffi:foreign-funcall "lisp_grpc_client_make_close_op"
                         :pointer op
-                        :int flag
                         :int index
+                        :int flag
                         :void))
 
 (defun make-send-status-from-server-op (op &key metadata count status flag index)
@@ -105,11 +105,11 @@ to the server."
 METADATA, the server STATUS, the count of metadata COUNT, and the flag FLAG."
   (cffi:foreign-funcall "lisp_grpc_make_send_status_from_server_op"
                         :pointer op
+                        :int index
                         :pointer metadata
                         :int count
                         grpc-status-code status
                         :int flag
-                        :int index
                         :void))
 
 (defun make-recv-close-on-server-op (op &key cancelled flag index)
@@ -117,9 +117,9 @@ METADATA, the server STATUS, the count of metadata COUNT, and the flag FLAG."
 and the flag FLAG"
   (cffi:foreign-funcall "lisp_grpc_server_make_close_op"
                         :pointer op
+                        :int index
                         :pointer cancelled
                         :int flag
-                        :int index
                         :void))
 
 (defun prepare-ops (ops message
@@ -129,7 +129,7 @@ and the flag FLAG"
                       recv-message server-recv-close server-send-status)
   "Prepares OPS to send MESSAGE to the server. The keys SEND-METADATA
 SEND-MESSAGE CLIENT-CLOSE CLIENT-RECV-STATUS RECV-METADATA RECV-MESSAGE
-SERVER-CLOSE SERVER-SEND-STATUS are all different types of ops that the user may
+SERVER-RECV-CLOSE SERVER-SEND-STATUS are all different types of ops that the user may
 want. Returns a plist containing keys being the op type and values being the index."
   (let ((cur-index -1)
         ops-plist)

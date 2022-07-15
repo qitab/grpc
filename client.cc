@@ -103,8 +103,9 @@ void grpc_ops_free(grpc_op* ops, int size) {
 // Takes in a preallocated grpc_op array.
 // Stores the given metadata, flags, and count for the
 // GRPC_OP_SEND_INITIAL_METADATA operation.
-void lisp_grpc_make_send_metadata_op(grpc_op* op, grpc_metadata* metadata,
-                                     size_t count, uint32_t flags, int index) {
+void lisp_grpc_make_send_metadata_op(grpc_op* op, int index,
+                                     grpc_metadata* metadata,
+                                     size_t count, uint32_t flags) {
   op[index].op = GRPC_OP_SEND_INITIAL_METADATA;
   op[index].data.send_initial_metadata.count = count;
   op[index].data.send_initial_metadata.metadata = metadata;
@@ -115,8 +116,8 @@ void lisp_grpc_make_send_metadata_op(grpc_op* op, grpc_metadata* metadata,
 // Takes in a preallocated grpc_op array.
 // Stores the given request for the
 // GRPC_OP_SEND_MESSAGE operation.
-void lisp_grpc_make_send_message_op(grpc_op* op, grpc_byte_buffer* request,
-                                    int index) {
+void lisp_grpc_make_send_message_op(grpc_op* op, int index,
+                                     grpc_byte_buffer* request) {
   op[index].op = GRPC_OP_SEND_MESSAGE;
   op[index].data.send_message.send_message = request;
   op[index].reserved = nullptr;
@@ -125,7 +126,7 @@ void lisp_grpc_make_send_message_op(grpc_op* op, grpc_byte_buffer* request,
 // Takes in a preallocated grpc_op array.
 // Stores the given response for the
 // GRPC_OP_RECV_MESSAGE operation.
-void lisp_grpc_make_recv_message_op(grpc_op* op, int flags, int index) {
+void lisp_grpc_make_recv_message_op(grpc_op* op, int index, int flags) {
   op[index].op = GRPC_OP_RECV_MESSAGE;
   op[index].data.recv_message.recv_message = new grpc_byte_buffer*;
   op[index].reserved = nullptr;
@@ -157,7 +158,7 @@ grpc_metadata_array* lisp_grpc_op_get_initial_metadata(grpc_op* ops, int index)
 // Takes in a preallocated grpc_op array.
 // Stores the given flags for the
 // GRPC_OP_SEND_CLOSE_FROM_CLIENT operation.
-void lisp_grpc_client_make_close_op(grpc_op* op, uint32_t flags, int index) {
+void lisp_grpc_client_make_close_op(grpc_op* op, int index, uint32_t flags) {
   op[index].op = GRPC_OP_SEND_CLOSE_FROM_CLIENT;
   op[index].flags = flags;
   op[index].reserved = nullptr;
@@ -166,7 +167,7 @@ void lisp_grpc_client_make_close_op(grpc_op* op, uint32_t flags, int index) {
 // Takes in a preallocated grpc_op array.
 // Stores the given trailing_metadata, status, details, and flags for the
 // GRPC_OP_RECV_STATUS_ON_CLIENT operation.
-void lisp_grpc_client_make_recv_status_op(grpc_op* op, int flags, int index) {
+void lisp_grpc_client_make_recv_status_op(grpc_op* op, int index, int flags) {
   op[index].op = GRPC_OP_RECV_STATUS_ON_CLIENT;
   op[index].data.recv_status_on_client.trailing_metadata =
       create_new_grpc_metadata_array();
@@ -193,10 +194,11 @@ grpc_slice* lisp_grpc_op_get_status_details(grpc_op* ops, int index) {
 // Stores the given trailing_metadata, metadata_count, status, and flags, for
 // the GRPC_OP_SEND_STATUS_FROM_SERVER operation.
 void lisp_grpc_server_make_send_status_op(grpc_op* op,
+                                          int index,
                                           grpc_metadata* trailing_metadata,
                                           uint32_t metadata_count,
                                           grpc_status_code status,
-                                          uint32_t flags, int index) {
+                                          uint32_t flags) {
   op[index].op = GRPC_OP_SEND_STATUS_FROM_SERVER;
   op[index].data.send_status_from_server.trailing_metadata = trailing_metadata;
   op[index].data.send_status_from_server.status = status;
@@ -209,8 +211,8 @@ void lisp_grpc_server_make_send_status_op(grpc_op* op,
 // Takes in a preallocated grpc_op array.
 // Stores the given metadata, cancelled and flags for the
 // GRPC_OP_RECV_CLOSE_ON_SERVER operation.
-void lisp_grpc_server_make_close_op(grpc_op* op, int* cancelled,
-                                    uint32_t flags, int index) {
+void lisp_grpc_server_make_close_op(grpc_op* op, int index, int* cancelled,
+                                    uint32_t flags ) {
   op[index].op = GRPC_OP_RECV_CLOSE_ON_SERVER;
   op[index].data.recv_close_on_server.cancelled = cancelled;
   op[index].flags = flags;
@@ -221,10 +223,11 @@ void lisp_grpc_server_make_close_op(grpc_op* op, int* cancelled,
 // Stores the given metadata, flags, and count for the
 // GRPC_OP_SEND_STATUS_FROM_SERVER operation.
 void lisp_grpc_make_send_status_from_server_op(grpc_op* op,
+                                               int index,
                                                grpc_metadata* trailing_metadata,
                                                uint32_t metadata_count,
                                                grpc_status_code status,
-                                               uint32_t flags, int index) {
+                                               uint32_t flags) {
   op[index].op = GRPC_OP_SEND_STATUS_FROM_SERVER;
   op[index].data.send_status_from_server.trailing_metadata = trailing_metadata;
   op[index].data.send_status_from_server.trailing_metadata_count =
