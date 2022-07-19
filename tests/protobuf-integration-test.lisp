@@ -34,11 +34,11 @@ Parameters
          (qualified-method-name (grpc::get-qualified-method-name method-descriptor)))
     (assert-true (string= expected-qualified-method-name qualified-method-name))))
 
-(deftest test-start-call-unary-rpc ()
+(deftest test-start-call-unary-rpc (protobuf-integration-suite)
   "Validate the start-call method properly handles the scenario in which a single request is sent to
 the server and a single response is returned."
   (let ((request (test-proto:make-hello-request :name "Neo"))
-        (response (test-proto:make-hello-reply :message "Hello, Neo"))
+        (expected-response (test-proto:make-hello-reply :message "Hello, Neo"))
         (method (make-instance 'cl-protobufs:method-descriptor
                                :service-name "Greeter"
                                :name "SayHello"
@@ -61,16 +61,17 @@ the server and a single response is returned."
                                             (cl-protobufs:serialize-to-bytes request))
                              (assert-eq server-stream nil)
                              (assert-eq client-stream nil)
-                             (list (cl-protobufs:serialize-to-bytes response))))
-      (assert-equalp (grpc::start-call "channel" method request nil) response))))
+                             (list (cl-protobufs:serialize-to-bytes expected-response))))
+      (let ((actual-response (grpc::start-call "channel" method request nil)))
+        (assert-equalp actual-response expected-response)))))
 
-(deftest test-start-call-server-streaming-rpc ()
+(deftest test-start-call-server-streaming-rpc (protobuf-integration-suite)
   "Validate the start-call method properly handles the scenario in which a single request is sent to
 the server and a stream of responses are returned."
   (let ((request (test-proto:make-hello-request :name "Neo" :num-responses 3))
-        (response (list (test-proto:make-hello-reply :message "Hello, Neo 0")
-                        (test-proto:make-hello-reply :message "Hello, Neo 1")
-                        (test-proto:make-hello-reply :message "Hello, Neo 2")))
+        (expected-response (list (test-proto:make-hello-reply :message "Hello, Neo 0")
+                                 (test-proto:make-hello-reply :message "Hello, Neo 1")
+                                 (test-proto:make-hello-reply :message "Hello, Neo 2")))
         (method (make-instance 'cl-protobufs:method-descriptor
                                :service-name "Greeter"
                                :name "SayHelloServerStream"
@@ -93,17 +94,18 @@ the server and a stream of responses are returned."
                                             (cl-protobufs:serialize-to-bytes request))
                              (assert-eq server-stream t)
                              (assert-eq client-stream nil)
-                             (loop for message in response
+                             (loop for message in expected-response
                                    collect (list (cl-protobufs:serialize-to-bytes message)))))
-      (assert-equalp (grpc::start-call "channel" method request nil) response))))
+      (let ((actual-response (grpc::start-call "channel" method request nil)))
+        (assert-equalp actual-response expected-response)))))
 
-(deftest test-start-call-client-streaming-rpc ()
+(deftest test-start-call-client-streaming-rpc (protobuf-integration-suite)
   "Validate the start-call method properly handles the scenario in which a stream of requests are
 sent to the server and a single response is returned."
   (let ((request (list (test-proto:make-hello-request :name "Neo")
                        (test-proto:make-hello-request :name "Morpheus")
                        (test-proto:make-hello-request :name "Trinity")))
-        (response (test-proto:make-hello-reply :message "Hello, Neo Morpheus Trinity"))
+        (expected-response (test-proto:make-hello-reply :message "Hello, Neo Morpheus Trinity"))
         (method (make-instance 'cl-protobufs:method-descriptor
                                :service-name "Greeter"
                                :name "SayHelloClientStream"
@@ -126,20 +128,21 @@ sent to the server and a single response is returned."
                                             (mapcar #'cl-protobufs:serialize-to-bytes request))
                              (assert-eq server-stream nil)
                              (assert-eq client-stream t)
-                             (list (cl-protobufs:serialize-to-bytes response))))
-      (assert-equalp (grpc::start-call "channel" method request nil) response))))
+                             (list (cl-protobufs:serialize-to-bytes expected-response))))
+      (let ((actual-response (grpc::start-call "channel" method request nil)))
+        (assert-equalp actual-response expected-response)))))
 
-(deftest test-start-call-bidirectional-streaming ()
+(deftest test-start-call-bidirectional-streaming (protobuf-integration-suite)
   "Validate the start-call method properly handles the scenario in which a stream of requests are
 sent to the server and a stream of responses are returned."
   (let ((request (list (test-proto:make-hello-request :name "Neo" :num-responses 1)
                        (test-proto:make-hello-request :name "Morpheus" :num-responses 2)
                        (test-proto:make-hello-request :name "Trinity" :num-responses 1)))
-        (response (list (test-proto:make-hello-reply :message "Hello, Neo 0")
-                        (test-proto:make-hello-reply :message "Hello, Morpheus 1")
-                        (test-proto:make-hello-reply :message "Hello, Neo 1")
-                        (test-proto:make-hello-reply :message "Hello, Trinity 0")
-                        (test-proto:make-hello-reply :message "Hello, Morpheus 0")))
+        (expected-response (list (test-proto:make-hello-reply :message "Hello, Neo 0")
+                                 (test-proto:make-hello-reply :message "Hello, Morpheus 1")
+                                 (test-proto:make-hello-reply :message "Hello, Neo 1")
+                                 (test-proto:make-hello-reply :message "Hello, Trinity 0")
+                                 (test-proto:make-hello-reply :message "Hello, Morpheus 0")))
         (method (make-instance 'cl-protobufs:method-descriptor
                                :service-name "Greeter"
                                :name "SayHelloBidirectionalStream"
@@ -162,6 +165,7 @@ sent to the server and a stream of responses are returned."
                                             (mapcar #'cl-protobufs:serialize-to-bytes request))
                              (assert-eq server-stream t)
                              (assert-eq client-stream t)
-                             (loop for message in response
+                             (loop for message in expected-response
                                    collect (list (cl-protobufs:serialize-to-bytes message)))))
-      (assert-equalp (grpc::start-call "channel" method request nil) response))))
+      (let ((actual-response (grpc::start-call "channel" method request nil)))
+        (assert-equalp actual-response expected-response)))))
