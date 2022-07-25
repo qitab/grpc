@@ -7,7 +7,7 @@
 ;;;; Lisp wrappers
 
 (in-package #:grpc)
- 
+
 ;; gRPC Enums
 (cffi:defcenum grpc-security-level
   "Security levels of grpc transport security. It represents an inherent
@@ -103,7 +103,7 @@ resulting connection is GRPC_PRIVACY_AND_INTEGRITY.
   (cert-chain :string))
 
 (cffi:defcfun ("delete_grpc_ssl_pem_key_cert_pair" grpc-ssl-pem-key-cert-pair-delete)
-    :void
+  :void
   "Deletes KEYPAIR, a grpc_ssl_pem_key_cert_pair object."
   (keypair :pointer))
 
@@ -114,7 +114,7 @@ resulting connection is GRPC_PRIVACY_AND_INTEGRITY.
   (verify-peer-destruct :pointer))
 
 (cffi:defcfun ("delete_grpc_ssl_verify_peer_options" grpc-ssl-verify-peer-options-delete)
-    :void
+  :void
   "Deletes OPTIONS, a grpc_ssl_verify_peer_options object."
   (options :pointer))
 
@@ -135,7 +135,7 @@ The security level of the resulting connection is GRPC_PRIVACY_AND_INTEGRITY.
                         :pointer))
 
 (defun c-grpc-client-new-metadata-credentials (plugin min-security-level)
-"This method creates a local channel credential object. The security
+  "This method creates a local channel credential object. The security
 level of the resulting connection is GRPC_PRIVACY_AND_INTEGRITY for UDS and
 GRPC_SECURITY_NONE for LOCAL_TCP. It is used for experimental purpose
 for now and subject to change."
@@ -286,14 +286,14 @@ of operation and check the success."
 (cffi:defcfun ("grpc_ops_free" grpc-ops-free) :void
   "Deletes and destroys all memory in fields of OPS upto index SIZE
 before freeing ops."
-   (ops :pointer) (size :int))
+  (ops :pointer) (size :int))
 
 (cffi:defcfun ("grpc_channel_credentials_release" grpc-credentials-release)
   :void
   "Releases CREDENTIALS."
   (credentials :pointer))
 
-(cffi:defcfun ("grpc_byte_buffer_destroy" grpc-byte-buffer-destroy) :void
+(cffi:defcfun ("grpc_byte_buffer_destroy" grpc-byte-buffer-destroy :inline nil) :void
   "Destroys BYTE-BUFFER, a grpc_byte_buffer object."
   (byte-buffer :pointer))
 
@@ -305,16 +305,16 @@ before freeing ops."
   "Closes and destroys CHANNEL, a grpc_channel object."
   (channel :pointer))
 
-(cffi:defcfun ("create_new_grpc_metadata_array" create-new-grpc-metadata-array)
-    :pointer)
+(cffi:defcfun ("create_new_grpc_metadata_array" create-new-grpc-metadata-array :inline nil)
+  :pointer)
 
-(cffi:defcfun ("create_empty_grpc_byte_buffer" create-grpc-byte-buffer)
-    :pointer)
+(cffi:defcfun ("create_empty_grpc_byte_buffer" create-grpc-byte-buffer :inline nil)
+  :pointer)
 
 (cffi:defcfun ("create_empty_grpc_slice" create-grpc-slice) :pointer)
 
 (cffi:defcfun ("create_empty_grpc_status_code" create-grpc-status-code)
-    :pointer)
+  :pointer)
 
 (cffi:defcfun ("lisp_grpc_op_get_status" recv-status-on-client-code) grpc-status-code
   (ops :pointer)
@@ -325,13 +325,13 @@ before freeing ops."
   (str :string))
 
 (cffi:defcfun ("get_grpc_slice_from_grpc_byte_buffer"
-               get-grpc-slice-from-grpc-byte-buffer)
+               get-grpc-slice-from-grpc-byte-buffer :inline nil)
   :pointer
   (buf :pointer)
   (index :int))
 
 (cffi:defcfun ("grpc_byte_buffer_slice_buffer_count"
-               get-grpc-byte-buffer-slice-buffer-count) :int
+               get-grpc-byte-buffer-slice-buffer-count :inline nil) :int
   (op :pointer))
 
 (cffi:defcfun ("grpc_insecure_credentials_create"

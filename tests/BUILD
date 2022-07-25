@@ -39,3 +39,15 @@ lisp_test(
         "//third_party/lisp/grpc",
     ],
 )
+
+lisp_test(
+    name = "server-test",
+    size = "small",
+    srcs = ["server-test.lisp"],
+    main = "grpc.test.server:run",
+    deps = [
+        ":root-suite",
+        "//third_party/lisp/flexi-streams",
+        "//third_party/lisp/grpc",
+    ],
+)

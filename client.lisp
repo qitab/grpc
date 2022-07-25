@@ -33,14 +33,14 @@ on the CHANNEL provided and store the result in the completion queue CQ."
                         :pointer channel :string call-name :pointer cq
                         :pointer))
 
-(cffi:defcfun ("lisp_grpc_call_start_batch" call-start-batch)
+(cffi:defcfun ("lisp_grpc_call_start_batch" call-start-batch :inline nil)
   grpc-call-error
   (call :pointer)
   (ops :pointer)
   (num-ops :int)
   (tag :pointer))
 
-(cffi:defcfun ("lisp_grpc_completion_queue_pluck" completion-queue-pluck)
+(cffi:defcfun ("lisp_grpc_completion_queue_pluck" completion-queue-pluck :inline nil)
   :bool
   (completion-queue :pointer)
   (tag :pointer))
@@ -155,7 +155,7 @@ want. Returns a plist containing keys being the op type and values being the ind
         (make-send-status-from-server-op ops :metadata (cffi:null-pointer) :count 0 :status server-send-status :flag 0 :index (next-marker :server-send-status))))
     ops-plist))
 
-(cffi:defcfun ("lisp_grpc_op_recv_message" get-grpc-op-recv-message) :pointer
+(cffi:defcfun ("lisp_grpc_op_recv_message" get-grpc-op-recv-message :inline nil) :pointer
   (op :pointer)
   (index :int))
 
