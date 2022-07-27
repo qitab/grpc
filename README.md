@@ -90,7 +90,7 @@ gRPC can work with or without Protocol Buffer support. With that said,
 it is common to use a Protocol Buffer library in conjunction with gRPC.
 We have implemented support for the `cl-protobufs` library.
 
-The Qitab team provides supports `cl-protobufs` and doesn't gaurantee continued support
+The Qitab team provides supports `cl-protobufs` but doesn't guarantee continued support
 for other data format libraries.
 
 To use gRPC with `cl-protobufs` you must load `cl-protobufs` and `gRPC` with
