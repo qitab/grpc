@@ -43,9 +43,9 @@ jobs:
           pushd cmake/build &&
           cmake -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=/usr/local/ ../.. &&
           make -j 4 &&
-          sudo make install && 
+          sudo make install DESTDIR=/usr/local && 
           sudo ldconfig &&
-          export PKG_CONFIG_PATH=/usr/local/lib/:/lib/pkgconfig/:$PKG_CONFIG_PATH
+          export PKG_CONFIG_PATH=/usr/local/:/lib/pkgconfig/:$PKG_CONFIG_PATH
           cd $GITHUB_WORKSPACE/quicklisp/local-projects/grpc
           sudo make    
           popd
