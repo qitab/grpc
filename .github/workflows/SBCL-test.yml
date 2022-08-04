@@ -45,7 +45,7 @@ jobs:
           make -j 4 &&
           sudo make install && 
           sudo ldconfig &&
-          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/lib/pkgconfig/:$PKG_CONFIG_PATH
-          cd $GITHUB_WORKSPACE/quicklisp/local-projects/grpc
-          sudo make    
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH &&
+          cd $GITHUB_WORKSPACE/quicklisp/local-projects/grpc &&
+          sudo make &&
           popd
