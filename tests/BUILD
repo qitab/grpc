@@ -51,3 +51,19 @@ lisp_test(
         "//third_party/lisp/grpc",
     ],
 )
+
+lisp_test(
+    name = "integration-test",
+    size = "small",
+    srcs = ["integration-test.lisp"],
+    main = "grpc.test.server:run",
+    deps = [
+        ":root-suite",
+        "//lisp/log",
+        "//third_party/lisp/bordeaux-threads",
+        "//third_party/lisp/cffi",
+        "//third_party/lisp/cffi:libffi",
+        "//third_party/lisp/flexi-streams",
+        "//third_party/lisp/grpc",
+    ],
+)

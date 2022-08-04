@@ -189,9 +189,9 @@ grpc_slice*."
                                 :pointer)))
     (cffi:foreign-array-to-lisp slice-string-pointer
                                 (list :array :uint8
-                                      (1+ (cffi:foreign-funcall
+                                      (cffi:foreign-funcall
                                            "strlen"
-                                           :pointer slice-string-pointer :int))))))
+                                           :pointer slice-string-pointer :int)))))
 
 ;; Exported Functions
 
