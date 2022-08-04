@@ -23,7 +23,7 @@ client.o: client.cc
 	$(CXX) $(CFLAGS) -pthread -fPIC -c -o $@ $<
 
 client.so: client.o
-	$(CXX) $(LDFLAGS) -pthread -shared -Wl,--no-undefined -o $@ $<
+	$(CXX) -pthread -shared -Wl,--no-undefined -o $@ $(LDFLAGS) $<
 
 clean:
 	$(RM) client.o client.so
