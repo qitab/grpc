@@ -10,7 +10,7 @@
 # the same directory you gave as the --prefix option to ./configure
 # when installing it.
 GRPC_ROOT ?= /usr/local
-LIBS = -lgrpc -lgpr
+LIBS = -lgrpc -lgpr -lgrpc++
 CFLAGS = $(shell pkg-config grpc --cflags) -I$(GRPC_ROOT)/include
 LDFLAGS = -L$(GRPC_ROOT)/lib $(LIBS)
 
