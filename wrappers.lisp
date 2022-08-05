@@ -293,7 +293,7 @@ before freeing ops."
   "Releases CREDENTIALS."
   (credentials :pointer))
 
-(cffi:defcfun ("grpc_byte_buffer_destroy" grpc-byte-buffer-destroy :inline nil) :void
+(cffi:defcfun ("grpc_byte_buffer_destroy" grpc-byte-buffer-destroy ) :void
   "Destroys BYTE-BUFFER, a grpc_byte_buffer object."
   (byte-buffer :pointer))
 
@@ -305,10 +305,10 @@ before freeing ops."
   "Closes and destroys CHANNEL, a grpc_channel object."
   (channel :pointer))
 
-(cffi:defcfun ("create_new_grpc_metadata_array" create-new-grpc-metadata-array :inline nil)
+(cffi:defcfun ("create_new_grpc_metadata_array" create-new-grpc-metadata-array )
   :pointer)
 
-(cffi:defcfun ("create_empty_grpc_byte_buffer" create-grpc-byte-buffer :inline nil)
+(cffi:defcfun ("create_empty_grpc_byte_buffer" create-grpc-byte-buffer )
   :pointer)
 
 (cffi:defcfun ("create_empty_grpc_slice" create-grpc-slice) :pointer)
@@ -325,13 +325,13 @@ before freeing ops."
   (str :string))
 
 (cffi:defcfun ("get_grpc_slice_from_grpc_byte_buffer"
-               get-grpc-slice-from-grpc-byte-buffer :inline nil)
+               get-grpc-slice-from-grpc-byte-buffer )
   :pointer
   (buf :pointer)
   (index :int))
 
 (cffi:defcfun ("grpc_byte_buffer_slice_buffer_count"
-               get-grpc-byte-buffer-slice-buffer-count :inline nil) :int
+               get-grpc-byte-buffer-slice-buffer-count ) :int
   (op :pointer))
 
 (cffi:defcfun ("grpc_insecure_credentials_create"
