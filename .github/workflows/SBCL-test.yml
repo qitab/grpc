@@ -49,3 +49,7 @@ jobs:
           cd $GITHUB_WORKSPACE/quicklisp/local-projects/grpc &&
           sudo make &&
           popd
+ 
+      - name: Start gRPC                                                                                                                                                                              
+        run: |
+          sbcl --noinform --non-interactive --eval '(ql:quickload :grpc)'  >> report
