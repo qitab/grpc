@@ -49,7 +49,16 @@ jobs:
           cd $GITHUB_WORKSPACE/quicklisp/local-projects/grpc &&
           sudo make &&
           popd
- 
+          
+      - name: Install cl-protobufs (really only need protoc)
+        run: |
+          cd $GITHUB_WORKSPACE/quicklisp/local-projects
+          git clone https://github.com/qitab/cl-protobufs
+          cd cl-protobufs/protoc
+          PROTOC_ROOT=/usr/local make
+          echo "::add-path:$GITHUB_WORKSPACE/quicklisp/local-projects/cl-protobufs/protoc/"
+
+          
       - name: Start gRPC                                                                                                                                                                              
         run: |
           sbcl --noinform --non-interactive --eval '(ql:quickload :grpc)'  >> report
