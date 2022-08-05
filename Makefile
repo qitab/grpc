@@ -20,10 +20,10 @@ default_target: client.so
 .PHONY : default_target
 
 client.o: client.cc
-	$(CXX) $(CFLAGS) -pthread -fPIC -c -o $@ $<
+	$(CXX) $(CFLAGS) -pthread -fPIC -c -o $@ $< $(LDFLAGS)
 
 client.so: client.o
-	$(CXX) $(LDFLAGS) -pthread -shared -Wl,--no-undefined -o $@ $<
+	$(CXX) -pthread -shared -Wl,--no-undefined -o $@ $< $(LDFLAGS)
 
 clean:
 	$(RM) client.o client.so
