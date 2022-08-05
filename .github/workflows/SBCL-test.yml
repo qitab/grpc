@@ -57,6 +57,8 @@ jobs:
           cd cl-protobufs/protoc
           PROTOC_ROOT=/usr/local make
           echo "::add-path:$GITHUB_WORKSPACE/quicklisp/local-projects/cl-protobufs/protoc/"
+          export PATH="$PATH:$GITHUB_WORKSPACE/quicklisp/local-projects/cl-protobufs/protoc/"
+
 
           
       - name: Start gRPC                                                                                                                                                                              
