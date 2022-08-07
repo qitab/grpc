@@ -1,19 +1,20 @@
-# gRPC Client Library in Common Lisp
+# gRPC Library in Common Lisp
 
 
 
 ## Overview
 
-This package defines a gRPC client library for Common Lisp. It wraps gRPC core
-functions with CFFI calls and uses those core functions to create and use a
-client. client.lisp contains all the necessary functions to create a gRPC
-client by creating channels (connections between client and server) and calls
-(requests to a server).
+This package defines a [gRPC](https://grpc.io/) client library for Common Lisp.
+It wraps gRPC core functions with CFFI calls and uses those core functions to
+create and use a client. client.lisp contains all the necessary functions to
+create a gRPC client by creating channels (connections between client and
+server) and calls (requests to a server).
 
-Currently there is support for synchronous calls over
+Currently there is support for synchronous and streaming calls over
 
-insecure channels. Support for asynchronous calls and other channel types will
-be added in the future.
+SSL, and insecure channels.
+
+Support for implementing gRPC servers is in development.
 
 ## Usage
 
@@ -29,7 +30,23 @@ If using an insecure channel, use the `with-insecure-channel` macro. This macro
 expects a symbol to bind the channel to and the server address.
 
 ```lisp
-(with-insecure-channel (channel-bound-to-me "localhost:8080")
+(with-insecure-channel (channel "localhost:8080")
+;; Code that uses channel
+...)
+```
+
+#### SSL Channels
+
+If using an SSL channel, use the `with-ssl-channel` macro. This macro
+expects a symbol to bind the channel, the server address and
+certificate data to make the call.
+
+```lisp
+(with-ssl-channel (channel
+                    ("localhost:8080"
+                      (:pem-root-certs pem-root-certs
+                       :private-key private-key
+                       :cert-chain cert-chain)))
 ;; Code that uses channel
 ...)
 ```
@@ -38,9 +55,17 @@ expects a symbol to bind the channel to and the server address.
 
 ### Sending RPC Requests
 
-Once a channel has been created, RPC requests to the server can occur using `grpc-call`.
+Once a channel has been created, RPC requests to the server can occur.
+It is possible to send binary data directly over `gRPC` but most applications using
+`gRPC` will expect a Protocol Buffer encoded message. For details on Protocol buffer
+integration please see [Protocol Buffer Integration](#protocol-buffer-integration).
+
+A message can be sent directly through `gRPC` using `grpc-call`.
 This expects the channel that was previously created, the service name and method to be
-called, and the request message serialized to bytes.
+called, and the request message serialized to bytes. The `grpc-call` method also
+takes `server-stream` and `client-stream` arguments which state whether the message
+should use server or client side streaming as discussed in
+[Types of Services](#types-of-services)
 
 ```lisp
 (grpc:grpc-call channel
@@ -112,11 +137,17 @@ message HelloReply {
 }
 
 service Greeter {
-  // This is a test method to receive a HelloRequest and send a HelloReply.
+  // Receives a HelloRequest and responds with a HelloReply.
   rpc SayHello(HelloRequest) returns (HelloReply) {}
-  // This method receives a HelloRequest requesting some number of responses in num_responses
+  // Receive a HelloRequest requesting some number of responses in num_responses
   // and response with a HelloReply num_responses times.
   rpc SayHelloServerStream(HelloRequest) returns (stream HelloReply) {}
+  // Receive a number of requests and concatenate the name field of each
+  // HelloRequest. Return the final string in HelloReply.
+  rpc SayHelloClientStream(stream HelloRequest) returns (HelloReply) {}
+  // Receive a number of HelloRequest requesting some number of responses in num_responses.
+  // Respond to each HelloRequest with a HelloReply num_responses times.
+  rpc SayHelloBidirectionalStream(stream HelloRequest) returns (stream HelloReply) {}
 }
 ```
 
@@ -128,8 +159,10 @@ We create two packages:
 The package `cl-protobufs.testing` contains the `hello-request` and `hello-reply`  protocol
 buffer messages.
 
-The package `cl-protobufs.testing-rpc` contains a stub for `call-say-hello`. A message can be
-sent to a server implementing the `Greeter` service with:
+#### One Shot Client Calls.
+
+The package `cl-protobufs.testing-rpc` contains a stub for `call-say-hello`.
+A message can be sent to a server implementing the `Greeter` service with:
 
 ```lisp
   (grpc:with-insecure-channel
@@ -138,6 +171,59 @@ sent to a server implementing the `Greeter` service with:
            (response (cl-protobufs.testing-rpc:call-say-hello channel message)))
       ...))
 ```
+
+If the service implements client-side streaming `message` should be a list
+of `hello-request` messages to be sent to the server. If the service implements
+server-side streaming then response will contain a list of `hello-reply`
+messages.
+
+#### Asynchronous Client Streaming
+
+For streaming calls we create:
+
+-   `cl-protobufs.testing-rpc:<service-name>/start`
+-   `cl-protobufs.testing-rpc:<service-name>/send`
+-   `cl-protobufs.testing-rpc:<service-name>/receive`
+-   `cl-protobufs.testing-rpc:<service-name>/close`
+-   `cl-protobufs.testing-rpc:<service-name>/cleanup`
+
+functions.
+
+We will use `SayHelloBidirectionalStream` service as an example below.
+
+```
+(testing-rpc:say-hello-bidirectional-stream/start channel)
+```
+
+Takes in a `channel` object and returns a `call` object that the user must keep
+until the call is `closed` and `cleanup` is called.
+
+```
+(testing-rpc:say-hello-bidirectional-stream/send call message)
+```
+
+Takes in the `call` object and a `message` and sends a message to the client.
+
+```
+(testing-rpc:say-hello-server-stream/receive call)
+```
+
+Blocks until a message is received, then returns that message.
+`NIL` will be returned if the server closes the channel.
+
+```
+(testing-rpc:say-hello-server-stream/close call)
+```
+
+Will `close` the channel on the client side.
+
+```
+(testing-rpc:say-hello-server-stream/cleanup call)
+```
+
+Will safely cleanup any data leftover in the `call` object.
+
+#### Example
 
 This example can be found in examples/client/client-insecure.lisp.
 
