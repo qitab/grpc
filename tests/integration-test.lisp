@@ -24,8 +24,9 @@ Parameters
                                   :signal-condition-on-fail t))
 
 
-(defun run-server (expected-server-response sem)
-  (let* ((server (grpc::start-server grpc::*completion-queue*))
+(defun run-server (expected-server-response sem hostname methodname port-number)
+  (let* ((server-address (concatenate 'string hostname ":" (write-to-string port-number)))
+         (server (grpc::start-server grpc::*completion-queue* server-address methodname))
          (call-object (progn (bordeaux-threads:signal-semaphore sem)
                              (grpc::start-call-on-server server)))
          (message (grpc::receive-message-from-client call-object))
@@ -48,7 +49,7 @@ Parameters
               (port-number 8000)
               (sem (bordeaux-threads:make-semaphore))
               (thread (bordeaux-threads:make-thread
-                       (lambda () (run-server expected-server-response sem)))))
+                       (lambda () (run-server expected-server-response sem hostname methodname port-number)))))
          (bordeaux-threads:wait-on-semaphore sem)
          (grpc:with-loas2-channel
              (channel
