@@ -15,8 +15,13 @@
   :pointer
   (cq :pointer)
   (server-credentials :pointer)
-  (server-address :string)
-  (method-name :string))
+  (server-address :string))
+
+(cffi:defcfun ("register_method" register-method )
+  :pointer
+  (server :pointer)
+  (method-name :string)
+  (server-address :string))
 
 (cffi:defcfun ("lisp_grpc_server_request_call" grpc-server-request-call )
   :pointer

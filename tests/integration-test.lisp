@@ -24,20 +24,22 @@ Parameters
                                   :signal-condition-on-fail t))
 
 
-(defun run-server (expected-server-response sem hostname methodname port-number)
+(defun run-server (expected-server-response sem hostname methodnames port-number)
   (let* ((server-address (concatenate 'string hostname ":" (write-to-string port-number)))
          (server-creds (grpc::grpc-insecure-server-credentials-create))
          (server (grpc::start-server
-                  grpc::*completion-queue* server-creds server-address methodname))
-         (call-object (progn (bordeaux-threads:signal-semaphore sem)
-                             (grpc::start-call-on-server server)))
-         (message (grpc::receive-message-from-client call-object))
-         (result (apply #'concatenate '(array (unsigned-byte 8) (*)) message))
-         (actual-server-response (flexi-streams:octets-to-string result :external-format :utf-8)))
-    (assert-true (string= expected-server-response actual-server-response))
-    (let* ((message "Hello World Back")
-           (text-result (flexi-streams:string-to-octets message)))
-      (grpc::send-message-to-client call-object text-result))))
+                  grpc::*completion-queue* server-creds server-address)))
+    (loop for methodname in methodnames
+          do (grpc::register-method server methodname server-address))
+    (let* ((call-object (progn (bordeaux-threads:signal-semaphore sem)
+                               (grpc::start-call-on-server server)))
+           (message (grpc::receive-message-from-client call-object))
+           (result (apply #'concatenate '(array (unsigned-byte 8) (*)) message))
+           (actual-server-response (flexi-streams:octets-to-string result :external-format :utf-8)))
+      (assert-true (string= expected-server-response actual-server-response))
+      (let* ((message "Hello World Back")
+             (text-result (flexi-streams:string-to-octets message)))
+        (grpc::send-message-to-client call-object text-result)))))
 
 
 (deftest test-client-server-integration-success (server-suite)
@@ -47,18 +49,18 @@ Parameters
        (let* ((expected-server-response "Hello World")
               (expected-client-response "Hello World Back")
               (hostname "localhost")
-              (methodname "xyz")
+              (methodnames '("xyz"))
               (port-number 8000)
               (sem (bordeaux-threads:make-semaphore))
               (thread (bordeaux-threads:make-thread
                        (lambda () (run-server expected-server-response
-                                              sem hostname methodname port-number)))))
+                                              sem hostname methodnames port-number)))))
          (bordeaux-threads:wait-on-semaphore sem)
          (grpc:with-insecure-channel
              (channel
               (concatenate 'string hostname ":" (write-to-string port-number)))
            (let* ((message "Hello World")
-                  (response (grpc:grpc-call channel methodname
+                  (response (grpc:grpc-call channel (first methodnames)
                                             (flexi-streams:string-to-octets message) nil nil))
                   (actual-client-response (flexi-streams:octets-to-string (car response))))
              (assert-true (string=  actual-client-response expected-client-response))

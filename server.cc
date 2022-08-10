@@ -55,22 +55,22 @@ grpc_server* grpc_run_server(grpc_server* server,
   return server;
 }
 
+void* register_method(grpc_server* server, const char* method_name, const char* server_address){
+    return grpc_server_register_method(server,
+                                       const_cast<char*>(("/"+std::string(method_name)).c_str()),
+                                       server_address,
+                                       {}, 0);
+}
+
 grpc_server* start_server(grpc_completion_queue* cq,
                           grpc_server_credentials* server_creds,
-                          const char* server_address,
-                          const char* method_name) {
+                          const char* server_address) {
   // create the server
   grpc_server* server = grpc_server_create(nullptr, nullptr);
-  void* method;
 
   grpc_server_register_completion_queue(server, cq, nullptr);
 
   grpc_server_add_http2_port(server, server_address, server_creds);
-
-  method = grpc_server_register_method(server,
-                                     const_cast<char*>(("/"+std::string(method_name)).c_str()),
-                                     server_address,
-                                     {}, 0);
 
   return grpc_run_server(server, server_creds);
 }
