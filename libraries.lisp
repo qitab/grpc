@@ -12,5 +12,5 @@
   (cffi:define-foreign-library grpc-client-wrapper
     ;; Load the C wrapper directly from the source directory.
     (t (:default #.(namestring
-                    (asdf:system-relative-pathname "grpc" "client")))))
+                    (asdf:system-relative-pathname "grpc" "grpc")))))
   (cffi:load-foreign-library 'grpc-client-wrapper))

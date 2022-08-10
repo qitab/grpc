@@ -338,6 +338,10 @@ before freeing ops."
                grpc-insecure-credentials-create)
   :pointer)
 
+(cffi:defcfun ("grpc_insecure_server_credentials_create"
+               grpc-insecure-server-credentials-create)
+  :pointer)
+
 (defun convert-metadata-flag-to-integer (flag)
   "Converts FLAG, a metadata symbol, to its integer equivalent."
   (case flag (grpc-write-through-flag #x4)

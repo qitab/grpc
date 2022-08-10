@@ -13,17 +13,18 @@ GRPC_ROOT ?= /usr/local
 LIBS = -lgrpc -lgpr
 CFLAGS = $(shell pkg-config grpc --cflags) -I$(GRPC_ROOT)/include
 LDFLAGS = -L$(GRPC_ROOT)/lib $(LIBS)
-OFILES = client.o client_auth.o
+OFILES = client.o client_auth.o server.o
 
 # Default target if make is run with no arguments.
-default_target: client.so
+default_target: grpc.so
 
 .PHONY : default_target
 
-client.so: ${OFILES}
+grpc.so: ${OFILES}
 	$(CXX)  -pthread -shared -Wl,--no-undefined ${OFILES} -o $@ $(LDFLAGS)
 
 clean: $(RM) ${OFILES} grpc.so
 
 client.o: client.cc
 client_auth.o: client_auth.cc
+server.o: server.cc
