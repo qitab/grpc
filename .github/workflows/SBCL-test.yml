@@ -63,5 +63,5 @@ jobs:
       - name: Start gRPC
         run: |
           export PATH="$PATH:$GITHUB_WORKSPACE/quicklisp/local-projects/cl-protobufs/protoc/"
-          sbcl --noinform --non-interactive --eval '(ql:quickload :grpc)'  >> report
+          sbcl --noinform --non-interactive --eval '(ql:quickload :grpc)' --eval '(ql:quickload :clunit2)' --eval '(ql:quickload :flexi-streams)' --eval '(ql:quickload :bordeaux-threads)' --eval '(setf clunit:*clunit-report-format* :tap)' --eval '(asdf:test-system :grpc)' >> report
           cat report

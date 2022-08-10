@@ -65,6 +65,8 @@ jobs:
       - name: Start gRPC
         run: |
           export PATH="$PATH:$GITHUB_WORKSPACE/quicklisp/local-projects/cl-protobufs/protoc/"
-          ./ccl/lx86cl64 --eval '(ql:quickload :grpc)'  >> report
+          ./ccl/lx86cl64 --eval '(ql:quickload :grpc)' --eval '(ql:quickload :clunit2)' --eval '(ql:quickload :flexi-streams)' --eval '(ql:quickload :bordeaux-threads)' --eval '(setf clunit:*clunit-report-format* :tap)' --eval '(asdf:test-system :grpc)' >> report
+          test -f report
           cat report
           ! grep -q "not ok" report
+          grep -q "ok" report

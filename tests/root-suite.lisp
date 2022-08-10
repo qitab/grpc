@@ -11,7 +11,7 @@
 
 (defun run-all ()
   "Run all tests."
-  (clunit:run-suite 'root-suit :signal-condition-on-fail t))
+  (clunit:run-suite 'root-suite :signal-condition-on-fail t))
 
 (defun %generate-temporary-binding-name (binding)
   "Generates the temporary binding name to store the original function."

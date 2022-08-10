@@ -41,7 +41,7 @@ Parameters
 
 
 (deftest test-client-server-integration-success (server-suite)
-  (google:init)
+  ;; init
   (grpc:init-grpc)
   (unwind-protect
        (let* ((expected-server-response "Hello World")

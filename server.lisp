@@ -8,17 +8,17 @@
 
 (in-package #:grpc)
 
-(cffi:defcfun ("create_new_grpc_call_details" create-grpc-call-details :inline nil)
+(cffi:defcfun ("create_new_grpc_call_details" create-grpc-call-details )
   :pointer)
 
-(cffi:defcfun ("start_server" start-server :inline nil)
+(cffi:defcfun ("start_server" start-server )
   :pointer
   (cq :pointer)
   (server-credentials :pointer)
   (server-address :string)
   (method-name :string))
 
-(cffi:defcfun ("lisp_grpc_server_request_call" grpc-server-request-call :inline nil)
+(cffi:defcfun ("lisp_grpc_server_request_call" grpc-server-request-call )
   :pointer
   (server :pointer)
   (details :pointer)
