@@ -240,6 +240,10 @@ WARNING: Do NOT use this credentials to connect to a non-google service as
 
 ;; gRPC Server Credentials
 
+(cffi:defcfun ("grpc_insecure_server_credentials_create"
+               grpc-insecure-server-credentials-create)
+  :pointer)
+
 (defun c-grpc-server-new-ssl-credentials (options)
   "Creates an SSL server_credentials object using the provided options struct."
   (cffi:foreign-funcall "grpc_ssl_server_credentials_create_with_options"

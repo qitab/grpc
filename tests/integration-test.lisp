@@ -26,7 +26,8 @@ Parameters
 
 (defun run-server (expected-server-response sem hostname methodname port-number)
   (let* ((server-address (concatenate 'string hostname ":" (write-to-string port-number)))
-         (server (grpc::start-server grpc::*completion-queue* server-address methodname))
+         (insecure-creds (grpc::grpc-insecure-server-credentials-create))
+         (server (grpc::start-server grpc::*completion-queue* insecure-creds server-address methodname))
          (call-object (progn (bordeaux-threads:signal-semaphore sem)
                              (grpc::start-call-on-server server)))
          (message (grpc::receive-message-from-client call-object))
@@ -51,9 +52,8 @@ Parameters
               (thread (bordeaux-threads:make-thread
                        (lambda () (run-server expected-server-response sem hostname methodname port-number)))))
          (bordeaux-threads:wait-on-semaphore sem)
-         (grpc:with-loas2-channel
-             (channel
-              ((concatenate 'string hostname ":" (write-to-string port-number)) ()))
+         (grpc:with-insecure-channel
+           (channel (concatenate 'string hostname ":" (write-to-string port-number)))
            (let* (
                   (message "Hello World")
                   (response (grpc:grpc-call channel methodname
