@@ -31,6 +31,7 @@ Parameters
                   grpc::*completion-queue* server-creds server-address)))
     (loop for methodname in methodnames
           do (grpc::register-method server methodname server-address))
+    (grpc::run-server server server-creds)
     (let* ((call-object (progn (bordeaux-threads:signal-semaphore sem)
                                (grpc::start-call-on-server server)))
            (message (grpc::receive-message-from-client call-object))
@@ -39,7 +40,10 @@ Parameters
       (assert-true (string= expected-server-response actual-server-response))
       (let* ((message "Hello World Back")
              (text-result (flexi-streams:string-to-octets message)))
-        (grpc::send-message-to-client call-object text-result)))))
+        (grpc::send-message-to-client call-object text-result))
+      (grpc::free-call-data call-object))
+    (grpc::shutdown-server server grpc::*completion-queue*
+                           (cffi:foreign-alloc :int))))
 
 
 (deftest test-client-server-integration-success (server-suite)
@@ -65,4 +69,5 @@ Parameters
                   (actual-client-response (flexi-streams:octets-to-string (car response))))
              (assert-true (string=  actual-client-response expected-client-response))
              (bordeaux-threads:join-thread thread)))))
-  (grpc:shutdown-grpc))
+  (grpc:shutdown-grpc)
+  )

@@ -18,6 +18,11 @@ grpc_call_details* create_new_grpc_call_details() {
   return details;
 }
 
+void delete_grpc_call_details(grpc_call_details* call_details) {
+  grpc_call_details_destroy(call_details);
+  delete call_details;
+}
+
 grpc_call* lisp_grpc_server_request_call(
     grpc_server* server, grpc_call_details* details,
     grpc_metadata_array* request_metadata,
@@ -72,7 +77,13 @@ grpc_server* start_server(grpc_completion_queue* cq,
 
   grpc_server_add_http2_port(server, server_address, server_creds);
 
-  return grpc_run_server(server, server_creds);
+  return server;
+}
+
+void shutdown_server(grpc_server* server, grpc_completion_queue* cq, void* tag) {
+  if (server == nullptr) return;
+  grpc_server_shutdown_and_notify(server, cq, tag);
+  grpc_server_destroy(server);
 }
 
 // Creates a grpc_call* given a 'channel', which manages the

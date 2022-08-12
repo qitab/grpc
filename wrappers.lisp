@@ -342,6 +342,42 @@ before freeing ops."
                grpc-insecure-server-credentials-create)
   :pointer)
 
+(cffi:defcfun ("delete_grpc_metadata_array" metadata-destroy)
+  :void
+  (metadata :pointer))
+
+(cffi:defcfun ("free_grpc_slice" free-slice)
+  :void
+  (slice :pointer))
+
+(defun get-bytes-from-grpc-byte-buffer (buffer index)
+  "Get a lisp-vector of bytes from the grpc_slice at INDEX
+i of grpc_byte_buffer BUFFER."
+  (let ((c-bytes
+         (cffi:foreign-funcall "convert_grpc_byte_buffer_to_bytes"
+                               :pointer buffer
+                               :int index
+                               :pointer)))
+    (prog1 (cffi:foreign-array-to-lisp c-bytes
+                                       (list :array :uint8
+                                             (cffi:foreign-funcall
+                                              "strlen"
+                                              :pointer c-bytes :int)))
+      (cffi:foreign-funcall "free"
+                            :pointer c-bytes
+                            :void))))
+
+
+(defun convert-bytes-to-grpc-byte-buffer (bytes)
+  "Given a lisp-vector of BYTES convert them to a grpc_byte_buffer."
+  (let ((array (cffi:foreign-alloc :char :initial-contents bytes)))
+    (prog1
+        (cffi:foreign-funcall "convert_bytes_to_grpc_byte_buffer"
+                               :pointer array
+                               :int (length bytes)
+                               :pointer)
+      (cffi:foreign-free array))))
+
 (defun convert-metadata-flag-to-integer (flag)
   "Converts FLAG, a metadata symbol, to its integer equivalent."
   (case flag (grpc-write-through-flag #x4)

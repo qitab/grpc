@@ -188,9 +188,10 @@ grpc_slice*."
 
 (defun convert-grpc-slice-to-bytes (slice)
   "Takes SLICE and returns its content as a vector of bytes."
-  (let* ((slice-string-pointer (cffi:foreign-funcall
-                                "convert_grpc_slice_to_string" :pointer slice
-                                :pointer)))
+  (let* ((slice-string-pointer
+          (cffi:foreign-funcall
+           "convert_grpc_slice_to_string" :pointer slice
+                                          :pointer)))
     (cffi:foreign-array-to-lisp slice-string-pointer
                                 (list :array :uint8
                                       (cffi:foreign-funcall
@@ -325,8 +326,7 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
          (tag (cffi:foreign-alloc :int))
          (send-op (create-new-grpc-ops 1))
          (grpc-slice
-           (convert-grpc-slice-to-grpc-byte-buffer
-            (convert-bytes-to-grpc-slice bytes-to-send)))
+           (convert-bytes-to-grpc-byte-buffer bytes-to-send))
          (ops-plist (prepare-ops send-op grpc-slice :send-message t))
          (call-code (call-start-batch c-call send-op 1 tag)))
     (declare (ignore ops-plist))
@@ -396,12 +396,13 @@ string to direct the call to."
   (let* ((c-call (call-c-call call))
          (tag (call-c-tag call))
          (ops (call-c-ops call)))
-    (completion-queue-pluck *completion-queue* tag)
-    (cffi:foreign-free tag)
+    (unless (cffi:null-pointer-p ops)
+      (completion-queue-pluck *completion-queue* tag)
+      (cffi:foreign-free tag))
     (grpc-call-unref c-call)
     ;; The number of ops used to start the call,
     ;; see START-CALL.
-    (grpc-ops-free ops +num-ops-for-starting-call+)))
+    (grpc-ops-free ops (/ (length (call-ops-plist call)) 2))))
 
 (defun grpc-call (channel service-method-name bytes-to-send
                   server-stream client-stream)

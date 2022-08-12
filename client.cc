@@ -68,6 +68,11 @@ grpc_metadata_array* create_new_grpc_metadata_array() {
   return arr;
 }
 
+void delete_grpc_metadata_array(grpc_metadata_array* metadata) {
+  grpc_metadata_array_destroy(metadata);
+  delete metadata;
+}
+
 // Allocates a grpc_op* pointer for 'num_ops' number of grpc_op.
 // The ownership is passed to the creator.
 grpc_op* create_new_grpc_ops(int num_ops) {
@@ -93,9 +98,21 @@ void grpc_ops_free(grpc_op* ops, int size) {
     }
     delete ops[i].data.recv_status_on_client.status;
     delete ops[i].data.recv_status_on_client.status_details;
+    if (ops[i].op == GRPC_OP_RECV_INITIAL_METADATA) {
+      grpc_metadata_array_destroy(ops[i].data.recv_initial_metadata
+                                      .recv_initial_metadata);
+
+    }
+    if (ops[i].op == GRPC_OP_SEND_INITIAL_METADATA) {
+      free(ops[i].data.send_initial_metadata.metadata);
+    }
     if (ops[i].op == GRPC_OP_SEND_STATUS_FROM_SERVER) {
       delete ops[i].data.send_status_from_server.trailing_metadata;
     }
+    if (ops[i].op == GRPC_OP_RECV_CLOSE_ON_SERVER) {
+      free(ops[i].data.recv_close_on_server.cancelled);
+    }
+
   }
   free(ops);
 }
@@ -277,6 +294,22 @@ int grpc_byte_buffer_slice_buffer_count(grpc_byte_buffer* buf) {
 
 char* convert_grpc_slice_to_string(grpc_slice* slice) {
   return grpc_slice_to_c_string(*slice);
+}
+
+void free_grpc_slice(grpc_slice* slice) {
+  free(slice);
+}
+
+grpc_byte_buffer* convert_bytes_to_grpc_byte_buffer(char* buf, size_t len) {
+  grpc_slice slice = grpc_slice_from_copied_buffer(buf, len);
+  grpc_byte_buffer* ret = new grpc_byte_buffer();
+  ret = grpc_raw_byte_buffer_create(&slice, 1);
+  return ret;
+}
+
+char* convert_grpc_byte_buffer_to_bytes(grpc_byte_buffer* buf, int index) {
+  grpc_slice slice = buf->data.raw.slice_buffer.slices[index];
+  return grpc_slice_to_c_string(slice);
 }
 
 grpc_slice* convert_bytes_to_grpc_slice(char* buf, size_t len) {

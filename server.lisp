@@ -8,8 +8,14 @@
 
 (in-package #:grpc)
 
-(cffi:defcfun ("create_new_grpc_call_details" create-grpc-call-details )
+(cffi:defcfun ("create_new_grpc_call_details"
+               create-grpc-call-details )
   :pointer)
+
+(cffi:defcfun ("delete_grpc_call_details"
+               call-details-destroy )
+  :void
+  (call-details :pointer))
 
 (cffi:defcfun ("start_server" start-server )
   :pointer
@@ -23,6 +29,11 @@
   (method-name :string)
   (server-address :string))
 
+(cffi:defcfun ("grpc_run_server" run-server )
+  :pointer
+  (server :pointer)
+  (server-credentials :pointer))
+
 (cffi:defcfun ("lisp_grpc_server_request_call" grpc-server-request-call )
   :pointer
   (server :pointer)
@@ -30,6 +41,12 @@
   (request-metadata :pointer)
   (cq-bound :pointer)
   (cq-notify :pointer)
+  (tag :pointer))
+
+(cffi:defcfun ("shutdown_server" shutdown-server )
+  :void
+  (server :pointer)
+  (cq :pointer)
   (tag :pointer))
 
 (defun start-call-on-server (server)
@@ -42,6 +59,8 @@
                                            grpc::*completion-queue*
                                            grpc::*completion-queue* tag)))
     (assert (not (cffi:null-pointer-p c-call)))
+    (metadata-destroy metadata)
+    (call-details-destroy call-details)
     (grpc::make-call :c-call c-call
                      :c-tag tag
                      :c-ops (cffi:null-pointer)
@@ -68,9 +87,8 @@
                  (loop for index from 0
                          to (1- (get-grpc-byte-buffer-slice-buffer-count
                                  response-byte-buffer))
-                       collecting (convert-grpc-slice-to-bytes
-                                   (get-grpc-slice-from-grpc-byte-buffer
-                                    response-byte-buffer index))
+                       collecting (get-bytes-from-grpc-byte-buffer
+                                   response-byte-buffer index)
                          into message
                        finally
                           (grpc-byte-buffer-destroy response-byte-buffer)
@@ -108,8 +126,7 @@
          (tag (cffi:foreign-alloc :int))
          (ops (create-new-grpc-ops num-ops))
          (grpc-slice
-           (convert-grpc-slice-to-grpc-byte-buffer
-            (convert-bytes-to-grpc-slice bytes-to-send)))
+          (convert-bytes-to-grpc-byte-buffer bytes-to-send))
          (ops-plist (prepare-ops ops grpc-slice :send-message t))
          (call-code (call-start-batch c-call ops num-ops tag)))
     (declare (ignore ops-plist))
