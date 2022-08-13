@@ -350,6 +350,18 @@ before freeing ops."
   :void
   (slice :pointer))
 
+(defun get-call-method (buffer)
+  "Get a lisp-vector of bytes from the grpc_slice at INDEX
+i of grpc_byte_buffer BUFFER."
+  (let ((c-bytes
+         (cffi:foreign-funcall "grpc_call_method"
+                               :pointer buffer
+                               :pointer)))
+    (prog1 (cffi:foreign-string-to-lisp c-bytes)
+      (cffi:foreign-funcall "free"
+                            :pointer c-bytes
+                            :void))))
+
 (defun get-bytes-from-grpc-byte-buffer (buffer index)
   "Get a lisp-vector of bytes from the grpc_slice at INDEX
 i of grpc_byte_buffer BUFFER."

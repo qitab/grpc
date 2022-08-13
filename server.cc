@@ -18,6 +18,10 @@ grpc_call_details* create_new_grpc_call_details() {
   return details;
 }
 
+char* grpc_call_method(grpc_call_details* call_details) {
+  return grpc_slice_to_c_string(call_details->method);
+}
+
 void delete_grpc_call_details(grpc_call_details* call_details) {
   grpc_call_details_destroy(call_details);
   delete call_details;

@@ -277,10 +277,14 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
        (grpc-credentials-release ssl-credentials)
        (grpc-channel-destroy ,bound-channel))))
 
+(defstruct call-details
+  (method-name "" :type string))
+
 (defstruct call
   (c-call nil :type cffi:foreign-pointer)
   (c-tag nil :type cffi:foreign-pointer)
   (c-ops nil :type cffi:foreign-pointer)
+  (call-details (make-call-details) :type call-details)
   ;; This is a plist where the key is a keyword for a type of op
   ;; and the value is the index of that op in an op-array.
   (ops-plist nil :type list))

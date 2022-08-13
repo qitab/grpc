@@ -57,13 +57,16 @@
          (c-call (grpc-server-request-call server call-details
                                            metadata
                                            grpc::*completion-queue*
-                                           grpc::*completion-queue* tag)))
+                                           grpc::*completion-queue* tag))
+         (method (get-call-method call-details)))
     (assert (not (cffi:null-pointer-p c-call)))
     (metadata-destroy metadata)
     (call-details-destroy call-details)
     (grpc::make-call :c-call c-call
                      :c-tag tag
                      :c-ops (cffi:null-pointer)
+                     :call-details (make-call-details
+                                    :method-name method)
                      :ops-plist nil)))
 
 (defun receive-message-from-client (call)
@@ -184,3 +187,53 @@
   (server-send-message call bytes-to-send)
   (server-send-status call)
   (server-recv-close call))
+
+(defun run-methods (methods server)
+  (let* ((call (start-call-on-server server))
+         (messages (receive-message-from-client call))
+         (message (apply #'concatenate '(array (unsigned-byte 8) (*)) messages)))
+    (unwind-protect
+         (format t "~A" call)
+      (let* ((method (find (call-details-method-name
+                            (call-call-details call))
+                           methods
+                           :test #'string=
+                           :key #'car))
+             (response (funcall (second method) message)))
+        (format t "~%~A~%" response)
+        (send-message-to-client call response))
+      (free-call-data call))))
+
+(defun run-grpc-server (address methods cq &key
+                                           (num-threads 1)
+                                           (run-methods #'run-methods)
+                                           (exit-count nil)
+                                           )
+  (let* ((server-creds (grpc-insecure-server-credentials-create))
+         (server (start-server cq server-creds address))
+         (sem (bordeaux-threads-2:make-semaphore :count num-threads))
+         threads)
+
+    (dolist (method methods)
+      (format t "~s~%" (car method))
+      (register-method server (car method) address))
+    (run-server server server-creds)
+
+    (unwind-protect
+         (loop for run-count from 0
+               while (or (not exit-count)
+                         (< run-count exit-count))
+               do
+            (bordeaux-threads-2:wait-on-semaphore sem)
+            (push
+             (bordeaux-threads-2:make-thread
+              (lambda ()
+                (funcall run-methods methods server)
+                (bordeaux-threads-2:signal-semaphore sem))
+              :name (format nil "Run Method Run ~a" run-count))
+             threads)))
+
+    (dolist (thread threads)
+      (bordeaux-threads-2:join-thread thread))
+
+    (shutdown-server server cq (cffi:foreign-alloc :int))))
