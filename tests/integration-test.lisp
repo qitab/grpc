@@ -15,7 +15,6 @@
 (in-package #:grpc.test.server)
 
 (defsuite server-suite (grpc.test:root-suite))
-
 (defun run (&key use-debugger)
   "Run all tests in the test suite.
 Parameters

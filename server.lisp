@@ -57,13 +57,15 @@
          (c-call (grpc-server-request-call server call-details
                                            metadata
                                            grpc::*completion-queue*
-                                           grpc::*completion-queue* tag)))
+                                           grpc::*completion-queue* tag))
+         (method (get-call-method call-details)))
     (assert (not (cffi:null-pointer-p c-call)))
     (metadata-destroy metadata)
     (call-details-destroy call-details)
     (grpc::make-call :c-call c-call
                      :c-tag tag
                      :c-ops (cffi:null-pointer)
+                     :method-name method
                      :ops-plist nil)))
 
 (defun receive-message-from-client (call)
