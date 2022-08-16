@@ -10,6 +10,8 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (cffi:define-foreign-library grpc-client-wrapper
+	;; Load lib on mac
+	(:darwin (:default "libgrpc"))
     ;; Load the C wrapper directly from the source directory.
     (t (:default #.(namestring
                     (asdf:system-relative-pathname "grpc" "grpc")))))
