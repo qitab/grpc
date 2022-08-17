@@ -15,6 +15,7 @@
 (in-package #:grpc.test.server)
 
 (defsuite server-suite (grpc.test:root-suite))
+
 (defun run (&key use-debugger)
   "Run all tests in the test suite.
 Parameters
@@ -22,51 +23,55 @@ Parameters
   (clunit:run-suite 'server-suite :use-debugger use-debugger
                                   :signal-condition-on-fail t))
 
-
-(defun run-server (expected-server-response sem hostname methodnames port-number)
-  (let* ((server-address (concatenate 'string hostname ":" (write-to-string port-number)))
-         (server-creds (grpc::grpc-insecure-server-credentials-create))
-         (server (grpc::start-server
-                  grpc::*completion-queue* server-creds server-address)))
-    (loop for methodname in methodnames
-          do (grpc::register-method server methodname server-address))
-    (grpc::run-server server server-creds)
-    (let* ((call-object (progn (bordeaux-threads:signal-semaphore sem)
-                               (grpc::start-call-on-server server)))
-           (message (grpc::receive-message-from-client call-object))
-           (result (apply #'concatenate '(array (unsigned-byte 8) (*)) message))
-           (actual-server-response (flexi-streams:octets-to-string result :external-format :utf-8)))
-      (assert-true (string= expected-server-response actual-server-response))
-      (let* ((message "Hello World Back")
-             (text-result (flexi-streams:string-to-octets message)))
-        (grpc::send-message-to-client call-object text-result))
-      (grpc::free-call-data call-object))
-    (grpc::shutdown-server server grpc::*completion-queue*
-                           (cffi:foreign-alloc :int))))
-
+(defun run-server (sem hostname method-name port-number)
+  (grpc::run-grpc-server
+   (concatenate 'string
+                hostname ":"
+                (write-to-string port-number))
+   (list
+    (grpc::make-method-details
+     :name method-name
+     :serializer #'flexi-streams:string-to-octets
+     :deserializer
+     (lambda (message)
+       (flexi-streams:octets-to-string
+        message
+        :external-format
+        :utf-8))
+     :action
+     (lambda (message call)
+       (declare (ignore call))
+       (format t "~% response: ~A ~%" message)
+       (concatenate 'string
+                    message
+                    " Back"))))
+   :dispatch-requests
+   (lambda (method server)
+     (bordeaux-threads:signal-semaphore sem)
+     (grpc::dispatch-requests method server :exit-count 1))))
 
 (deftest test-client-server-integration-success (server-suite)
   ;; init
   (grpc:init-grpc)
   (unwind-protect
-       (let* ((expected-server-response "Hello World")
-              (expected-client-response "Hello World Back")
+       (let* ((expected-client-response "Hello World Back")
               (hostname "localhost")
-              (methodnames '("xyz"))
+              (method-name "xyz")
               (port-number 8000)
               (sem (bordeaux-threads:make-semaphore))
               (thread (bordeaux-threads:make-thread
-                       (lambda () (run-server expected-server-response
-                                              sem hostname methodnames port-number)))))
+                       (lambda () (run-server sem hostname method-name
+                                              port-number)))))
          (bordeaux-threads:wait-on-semaphore sem)
          (grpc:with-insecure-channel
              (channel
               (concatenate 'string hostname ":" (write-to-string port-number)))
            (let* ((message "Hello World")
-                  (response (grpc:grpc-call channel (first methodnames)
-                                            (flexi-streams:string-to-octets message) nil nil))
-                  (actual-client-response (flexi-streams:octets-to-string (car response))))
+                  (response (grpc:grpc-call channel method-name
+                                            (flexi-streams:string-to-octets message)
+                                            nil nil))
+                  (actual-client-response (flexi-streams:octets-to-string
+                                           (car response))))
              (assert-true (string=  actual-client-response expected-client-response))
              (bordeaux-threads:join-thread thread)))))
-  (grpc:shutdown-grpc)
-  )
+  (grpc:shutdown-grpc))

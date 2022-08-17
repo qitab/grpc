@@ -8,7 +8,7 @@
   :version (:read-file-form "version.sexp")
   :description "Lisp wrapper for gRPC"
   :license "MIT"
-  :depends-on (:cl-protobufs :cffi)
+  :depends-on (:cl-protobufs :cffi :bordeaux-threads)
   :serial t
   :in-order-to ((test-op (test-op :grpc/tests)))
   :components ((:file "grpc")
@@ -26,6 +26,7 @@
   :maintainer '("Jon Godbout" "Carl Gay" "Nick Groszewski")
   :description      "Test code for gRPC for Common Lisp"
   :long-description "Test code for gRPC for Common Lisp"
+  :defsystem-depends-on (:cl-protobufs.asdf)
   :depends-on (:grpc :clunit2 :flexi-streams :bordeaux-threads)
   :serial t
   :pathname "tests/"
@@ -42,6 +43,12 @@
     :serial t
     :pathname ""
     :depends-on ("packages")
-    :components ((:file "integration-test"))))
+    :components ((:file "integration-test")))
+   (:module "cl-protobuf-integration-test"
+    :serial t
+    :pathname ""
+    :depends-on ("packages")
+    :components ((:protobuf-source-file "test")
+                 (:file "cl-protobuf-integration-test"))))
   :perform (test-op (o c)
                     (uiop:symbol-call '#:grpc.test '#:run-all)))

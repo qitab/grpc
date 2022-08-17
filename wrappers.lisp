@@ -398,3 +398,9 @@ i of grpc_byte_buffer BUFFER."
         (grpc-metadata-wait-for-ready-explicitly-set-flag #x80)
         (grpc-metadata-corked-flag #x100)
         (otherwise flag)))
+
+(defstruct method-details
+  (name "" :type string)
+  (serializer #'identity :type function)
+  (deserializer #'identity :type function)
+  (action #'identity :type function))

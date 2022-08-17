@@ -186,3 +186,68 @@
   (server-send-message call bytes-to-send)
   (server-send-status call)
   (server-recv-close call))
+
+(defun dispatch-requests (methods server &key (exit-count nil))
+  "Block on the SERVER for a call then dispatch the call to the
+proper method in METHODS based on the call method name. EXIT-COUNT
+allows the caller to specify the number of times dispatch-call
+can receive a call."
+  (loop for calls-received from 0
+        while (or (not exit-count)
+                  (< calls-received exit-count))
+        do
+     (let* ((call (start-call-on-server server))
+            (messages (receive-message-from-client call))
+            (message (apply #'concatenate '(array (unsigned-byte 8) (*)) messages)))
+       (unwind-protect
+            (let* ((method (find (call-method-name call)
+                                 methods
+                                 :test #'string=
+                                 :key #'method-details-name))
+                   (deserialized-message
+                    (funcall (method-details-deserializer method) message))
+                   (response
+                    (funcall (method-details-action method)
+                             deserialized-message call))
+                   (serialized-response
+                    (funcall (method-details-serializer method) response)))
+              (send-message-to-client call serialized-response))
+         (free-call-data call)))))
+
+(defun run-grpc-server (address methods
+                        &key
+                        (server-creds
+                         (grpc-insecure-server-credentials-create))
+                        (cq grpc::*completion-queue*)
+                        (num-threads 1)
+                        (dispatch-requests #'dispatch-requests))
+  "Start a gRPC server.
+Parameters
+  ADDRESS: The address to run the server on.
+  METHODS: The methods to start. Should be a list of method-details.
+  SERVER-CREDS: Pointer to the gRPC server credentials.
+  CQ: The completion queue to use.
+  NUM-THREADS: The number of threads to have running.
+  DISPATCH-CALL: A function to use to dispatch calls.
+                 Useful for debugging."
+  (let* ((server (start-server cq server-creds address))
+         threads)
+
+    (dolist (method methods)
+      (format t "~s~%" (method-details-name method))
+      (register-method server (method-details-name method) address))
+    (run-server server server-creds)
+
+    (unwind-protect
+         (dotimes (i num-threads)
+           (push
+            (bordeaux-threads:make-thread
+             (lambda ()
+               (funcall dispatch-requests methods server))
+             :name (format nil "Dispatch Request Thread ~a" i))
+            threads))
+
+      (dolist (thread threads)
+        (bordeaux-threads:join-thread thread))
+
+    (shutdown-server server cq (cffi:foreign-alloc :int)))))

@@ -140,3 +140,40 @@ Ignores TYPE CHANNEL METHOD and REQUEST."
   (unless (proto-call-client-stream-closed-p call)
     (error 'proto-call-error :call-error "Tried to cleanup call before closing the call."))
   (free-call-data call))
+
+(defun run-grpc-proto-server (address service-name
+                              &key
+                              (server-creds
+                               (grpc-insecure-server-credentials-create))
+                              (cq grpc::*completion-queue*)
+                              (num-threads 1)
+                              (dispatch-requests #'dispatch-requests))
+  "Start a gRPC server using protocol buffers.
+Parameters
+  ADDRESS: The address to run the server on.
+  SERVICE-NAME: The symbol naming the service to run.
+  SERVER-CREDS: Pointer to the gRPC server credentials.
+  CQ: The completion queue to use.
+  NUM-THREADS: The number of threads to have running.
+  DISPATCH-CALL: A function to use to dispatch calls.
+                 Useful for debugging."
+  (let* ((service (proto:find-service-descriptor service-name))
+         method-details-list)
+    (dolist (method (proto:proto-methods service))
+      (push
+       (make-method-details
+        :name (get-qualified-method-name method)
+        :serializer #'proto:serialize-to-bytes
+        :deserializer (lambda (bytes)
+                        (proto:deserialize-from-bytes
+                         (proto:proto-input-type method)
+                         bytes))
+        :action (lambda (message call)
+                  (funcall (proto:proto-server-stub method)
+                           message call)))
+       method-details-list))
+    (run-grpc-server address method-details-list
+                     :server-creds server-creds
+                     :cq cq
+                     :num-threads num-threads
+                     :dispatch-requests dispatch-requests)))
