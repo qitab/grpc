@@ -13,7 +13,7 @@
   :in-order-to ((test-op (test-op :grpc/tests)))
   :components ((:file "grpc")
                (:file "libraries")
-               (:file "wrappers")
+               (:file "shared")
                (:file "client")
                (:file "server")
                (:file "protobuf-integration")))

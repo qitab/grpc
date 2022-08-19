@@ -8,19 +8,38 @@
 
 (in-package #:grpc)
 
-(defvar *completion-queue* nil "The global completion queue used to
-manage grpc calls.")
+;; gRPC Client Channel wrappers
+(defun c-grpc-client-new-channel (creds target args)
+  "Creates a secure channel to TARGET using the passed-in
+credentials CREDS. Additional channel level configuration MAY be provided
+by grpc_channel_ARGS."
+  (cffi:foreign-funcall "grpc_channel_create"
+                        :string target
+                        :pointer creds
+                        :pointer args
+                        :pointer))
 
-(define-condition grpc-call-error (error)
-  ((call-error :initarg :call-error
-               :initform nil
-               :accessor call-error))
-  (:report (lambda (condition stream)
-             (format stream "GRPC CALL ERROR: ~A.~&" (call-error condition)))))
+(defun c-grpc-client-new-default-channel (call-creds user-provided-audience)
+  "Creates default credentials to connect to a google gRPC service.
+WARNING: Do NOT use this credentials to connect to a non-google service as
+this could result in an oauth2 token leak. The security level of the
+resulting connection is GRPC_PRIVACY_AND_INTEGRITY.
+
+ - CALL-CREDS is an optional parameter will be attached to the
+   returned channel credentials object.
+
+ - USER-PROVIDED-AUDIENCE is an optional field for user to override the
+   audience in the JWT token if used."
+  (cffi:foreign-funcall "grpc_google_default_credentials_create"
+                        :pointer call-creds
+                        :string user-provided-audience
+                        :pointer))
 
 ;; Functions for gRPC Client
 
-(defun create-channel (target &optional (creds (cffi:null-pointer)) (args (cffi:null-pointer)))
+(defun create-channel (target &optional
+                              (creds (cffi:null-pointer))
+                              (args (cffi:null-pointer)))
   "A wrapper to create a channel for the client to TARGET with
 additional args ARGS for client information. If CREDS is passed then a secure
 channel will be created using CREDS else an insecure channel will be used."
@@ -33,138 +52,8 @@ on the CHANNEL provided and store the result in the completion queue CQ."
                         :pointer channel :string call-name :pointer cq
                         :pointer))
 
-(cffi:defcfun ("lisp_grpc_call_start_batch" call-start-batch )
-  grpc-call-error
-  (call :pointer)
-  (ops :pointer)
-  (num-ops :int)
-  (tag :pointer))
-
-(cffi:defcfun ("lisp_grpc_completion_queue_pluck" completion-queue-pluck )
-  :bool
-  (completion-queue :pointer)
-  (tag :pointer))
-
-;; Wrappers to create operations
-
-(defun make-send-metadata-op (op metadata
-                              &key count flag
-                                index)
-  "Sets OP[INDEX] to a Send Initial Metadata operation by adding metadata
-METADATA, the count of metadata COUNT, and the flag FLAG."
-  (cffi:foreign-funcall "lisp_grpc_make_send_metadata_op"
-                        :pointer op
-                        :int index
-                        :pointer metadata
-                        :int count
-                        :int (convert-metadata-flag-to-integer flag)
-                        :void))
-
-(defun make-send-message-op (op message &key index)
-  "Sets OP[INDEX] to a 'Send Message' operation that sends MESSAGE
-to the server."
-  (cffi:foreign-funcall "lisp_grpc_make_send_message_op"
-                        :pointer op
-                        :int index
-                        :pointer message
-                        :void))
-
-(defun make-client-recv-status-op (op &key flag index)
-  "Sets OP[INDEX] to a 'RECEIVE STATUS' operation, sets the FLAG of the op."
-  (cffi:foreign-funcall "lisp_grpc_client_make_recv_status_op"
-                        :pointer op
-                        :int index
-                        :int flag
-                        :void))
-
-(defun make-recv-message-op (op &key flag index)
-  "Sets OP[INDEX] to a Receive Message operation with FLAG."
-  (cffi:foreign-funcall "lisp_grpc_make_recv_message_op"
-                        :pointer op
-                        :int index
-                        :int flag
-                        :void))
-
-(defun make-recv-metadata-op (op &key index)
-  "Set OP[INDEX] to a Receive Initial Metadata operation with FLAG."
-  (cffi:foreign-funcall "lisp_grpc_make_recv_metadata_op"
-                        :pointer op
-                        :int index
-                        :void))
-
-(defun make-client-close-op (op &key flag index)
-  "Sets OP[INDEX] to a Send Close From Client operation with FLAG."
-  (cffi:foreign-funcall "lisp_grpc_client_make_close_op"
-                        :pointer op
-                        :int index
-                        :int flag
-                        :void))
-
-(defun make-send-status-from-server-op (op &key metadata count status flag index)
-  "Sets OP[INDEX] to a Send Status from server operation by adding metadata
-METADATA, the server STATUS, the count of metadata COUNT, and the flag FLAG."
-  (cffi:foreign-funcall "lisp_grpc_make_send_status_from_server_op"
-                        :pointer op
-                        :int index
-                        :pointer metadata
-                        :int count
-                        grpc-status-code status
-                        :int flag
-                        :void))
-
-(defun make-recv-close-on-server-op (op &key cancelled flag index)
-  "Sets OP[INDEX] to a Receive Close on Server operation by adding cancelled CANCELLED
-and the flag FLAG"
-  (cffi:foreign-funcall "lisp_grpc_server_make_close_op"
-                        :pointer op
-                        :int index
-                        :pointer cancelled
-                        :int flag
-                        :void))
-
-(defun prepare-ops (ops message
-                    &key
-                      send-metadata send-message client-close
-                      client-recv-status recv-metadata
-                      recv-message server-recv-close server-send-status)
-  "Prepares OPS to send MESSAGE to the server. The keys SEND-METADATA
-SEND-MESSAGE CLIENT-CLOSE CLIENT-RECV-STATUS RECV-METADATA RECV-MESSAGE
-SERVER-RECV-CLOSE SERVER-SEND-STATUS are all different types of ops that the user may
-want. Returns a plist containing keys being the op type and values being the index."
-  (let ((cur-index -1)
-        ops-plist)
-    (flet ((next-marker (message-type)
-             (setf (getf ops-plist message-type) (incf cur-index))))
-
-      (when send-metadata
-        (make-send-metadata-op ops (cffi:null-pointer)
-                               :count 0 :flag 0 :index (next-marker :send-metadata)))
-      (when send-message
-        (make-send-message-op ops message :index (next-marker :send-message)))
-      (when client-close
-        (make-client-close-op ops :flag 0 :index (next-marker :client-close)))
-      (when client-recv-status
-        (make-client-recv-status-op ops :flag 0 :index (next-marker :client-recv-status)))
-      (when recv-metadata
-        (make-recv-metadata-op ops :index (next-marker :recv-metadata)))
-      (when recv-message
-        (make-recv-message-op ops :flag 0 :index (next-marker :recv-message)))
-      (when server-recv-close
-        (make-recv-close-on-server-op ops :cancelled (cffi:foreign-alloc :int) :flag 0 :index (next-marker :server-close)))
-      (when server-send-status
-        (make-send-status-from-server-op ops :metadata (cffi:null-pointer) :count 0 :status server-send-status :flag 0 :index (next-marker :server-send-status))))
-    ops-plist))
-
-(cffi:defcfun ("lisp_grpc_op_recv_message" get-grpc-op-recv-message ) :pointer
-  (op :pointer)
-  (index :int))
 
 ;; Auxiliary Functions
-
-(cffi:defcfun ("create_new_grpc_ops" create-new-grpc-ops) :pointer
-  "Creates a grpc_op* that is used to add NUM-OPS operations to,
-these operation guide the interaction between the client and server."
-  (num-ops :int))
 
 (defun convert-grpc-slice-to-grpc-byte-buffer (slice)
   "Takes a grpc_slice* SLICE and returns a pointer to the corresponding
@@ -173,52 +62,7 @@ grpc_byte_buffer*."
                         :pointer slice
                         :pointer))
 
-;; Hack since :size defctype doesn't work in
-;; cffi:foreign-funcall externally
-(cffi:defctype :size #+64-bit :uint64 #+32-bit :uint32)
-
-(defun convert-bytes-to-grpc-slice (bytes)
-  "Takes a list of bytes BYTES and returns a pointer to the corresponding
-grpc_slice*."
-  (let ((array (cffi:foreign-alloc :char :initial-contents bytes)))
-    (cffi:foreign-funcall "convert_bytes_to_grpc_slice"
-                          :pointer array
-                          :size (length bytes)
-                          :pointer)))
-
-(defun convert-grpc-slice-to-bytes (slice)
-  "Takes SLICE and returns its content as a vector of bytes."
-  (let* ((slice-string-pointer
-          (cffi:foreign-funcall
-           "convert_grpc_slice_to_string" :pointer slice
-                                          :pointer)))
-    (cffi:foreign-array-to-lisp slice-string-pointer
-                                (list :array :uint8
-                                      (cffi:foreign-funcall
-                                           "strlen"
-                                           :pointer slice-string-pointer :int)))))
-
 ;; Exported Functions
-
-(defun init-grpc ()
-  "Initializes the grpc library and the global *completion-queue* so that
-grpc functions can be used and the queue can be managed. Call before any gRPC
-functions or macros are called and only call once."
-  (cffi:foreign-funcall "grpc_init" :void)
-  (unless *completion-queue*
-    (setf *completion-queue* (grpc::c-grpc-completion-queue-create-for-pluck))))
-
-(defun shutdown-grpc ()
-  "Shuts down the grpc library which frees up any internal memory and
-destroys *completion-queue*. Call when finished with all gRPC functions and
-macros and only call once."
-  (when *completion-queue*
-    (cffi:foreign-funcall "grpc_completion_queue_shutdown"
-                          :pointer *completion-queue*)
-    (cffi:foreign-funcall "grpc_completion_queue_destroy"
-                          :pointer *completion-queue*)
-    (setf *completion-queue* nil))
-  (cffi:foreign-funcall "grpc_shutdown"))
 
 (defmacro with-insecure-channel
     ((bound-channel address) &body body)
@@ -277,22 +121,13 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
        (grpc-credentials-release ssl-credentials)
        (grpc-channel-destroy ,bound-channel))))
 
-(defstruct call
-  (c-call nil :type cffi:foreign-pointer)
-  (c-tag nil :type cffi:foreign-pointer)
-  (c-ops nil :type cffi:foreign-pointer)
-  (method-name "" :type string)
-  ;; This is a plist where the key is a keyword for a type of op
-  ;; and the value is the index of that op in an op-array.
-  (ops-plist nil :type list))
-
 (defun receive-message (call)
   "Receive a message from the server for a CALL."
   (declare (type call call))
   (let* ((tag (cffi:foreign-alloc :int))
          (c-call (call-c-call call))
          (receive-op (create-new-grpc-ops 1))
-         (ops-plist (prepare-ops receive-op nil :recv-message t))
+         (ops-plist (prepare-ops receive-op :recv-message t))
          (call-code (call-start-batch c-call receive-op 1 tag)))
     (unless (eql call-code :grpc-call-ok)
       (grpc-ops-free receive-op 1)
@@ -328,7 +163,7 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
          (send-op (create-new-grpc-ops 1))
          (grpc-slice
            (convert-bytes-to-grpc-byte-buffer bytes-to-send))
-         (ops-plist (prepare-ops send-op grpc-slice :send-message t))
+         (ops-plist (prepare-ops send-op :send-message grpc-slice))
          (call-code (call-start-batch c-call send-op 1 tag)))
     (declare (ignore ops-plist))
     (unless (eql call-code :grpc-call-ok)
@@ -349,7 +184,7 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
   (let* ((c-call (call-c-call call))
          (tag (cffi:foreign-alloc :int))
          (close-op (create-new-grpc-ops 1))
-         (ops-plist (prepare-ops close-op nil :client-close t))
+         (ops-plist (prepare-ops close-op :client-close t))
          (call-code (call-start-batch c-call close-op 1 tag)))
     (declare (ignore ops-plist))
     (unless (eql call-code :grpc-call-ok)
@@ -382,9 +217,9 @@ string to direct the call to."
          (ops (create-new-grpc-ops num-ops-for-sending-message))
          (tag (cffi:foreign-alloc :int))
          (ops-plist
-           (prepare-ops ops nil :send-metadata t
-                                :client-recv-status t
-                                :recv-metadata t)))
+           (prepare-ops ops :send-metadata t
+                            :client-recv-status t
+                            :recv-metadata t)))
     (call-start-batch c-call ops +num-ops-for-starting-call+ tag)
     (make-call :c-call c-call
                :c-tag tag

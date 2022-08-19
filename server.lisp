@@ -74,7 +74,7 @@
   (let* ((tag (cffi:foreign-alloc :int))
          (c-call (call-c-call call))
          (receive-op (create-new-grpc-ops 1))
-         (ops-plist (prepare-ops receive-op nil :recv-message t))
+         (ops-plist (prepare-ops receive-op :recv-message t))
          (call-code (call-start-batch c-call receive-op 1 tag)))
     (unless (eql call-code :grpc-call-ok)
       (grpc-ops-free receive-op 1)
@@ -96,9 +96,6 @@
                           (grpc-byte-buffer-destroy response-byte-buffer)
                           (return message)))))
         (grpc-ops-free receive-op 1)
-        ;; TO-DO(gprasun)
-        ;; Send back the GRPC-CALL-OK status from the server
-        ;; as it is checked by the client in send-message and receive-mesage
         message))))
 
 (defun send-initial-metadata (call)
@@ -108,7 +105,7 @@
          (c-call (call-c-call call))
          (tag (cffi:foreign-alloc :int))
          (ops (create-new-grpc-ops num-ops))
-         (ops-plist (prepare-ops ops nil :send-metadata t))
+         (ops-plist (prepare-ops ops :send-metadata t))
          (call-code (call-start-batch c-call ops num-ops tag)))
     (declare (ignore ops-plist))
     (unless (eql call-code :grpc-call-ok)
@@ -129,7 +126,7 @@
          (ops (create-new-grpc-ops num-ops))
          (grpc-slice
           (convert-bytes-to-grpc-byte-buffer bytes-to-send))
-         (ops-plist (prepare-ops ops grpc-slice :send-message t))
+         (ops-plist (prepare-ops ops :send-message grpc-slice))
          (call-code (call-start-batch c-call ops num-ops tag)))
     (declare (ignore ops-plist))
     (unless (eql call-code :grpc-call-ok)
@@ -148,7 +145,7 @@
          (c-call (call-c-call call))
          (tag (cffi:foreign-alloc :int))
          (ops (create-new-grpc-ops num-ops))
-         (ops-plist (prepare-ops ops nil :server-send-status :grpc-status-ok))
+         (ops-plist (prepare-ops ops :server-send-status :grpc-status-ok))
          (call-code (call-start-batch c-call ops num-ops tag)))
     (declare (ignore ops-plist))
     (unless (eql call-code :grpc-call-ok)
@@ -167,7 +164,7 @@
          (c-call (call-c-call call))
          (tag (cffi:foreign-alloc :int))
          (ops (create-new-grpc-ops num-ops))
-         (ops-plist (prepare-ops ops nil :server-recv-close t))
+         (ops-plist (prepare-ops ops :server-recv-close t))
          (call-code (call-start-batch c-call ops num-ops tag)))
     (declare (ignore ops-plist))
     (unless (eql call-code :grpc-call-ok)
@@ -178,14 +175,6 @@
       (grpc-ops-free ops num-ops)
       (cffi:foreign-free tag)
       cqp-p)))
-
-(defun send-message-to-client (call bytes-to-send)
-  "Send a message encoded in BYTES-TO-SEND to the server through a CALL with the
-  use of four gRPC ops"
-  (send-initial-metadata call)
-  (server-send-message call bytes-to-send)
-  (server-send-status call)
-  (server-recv-close call))
 
 (defun dispatch-requests (methods server &key (exit-count nil))
   "Block on the SERVER for a call then dispatch the call to the
@@ -199,6 +188,7 @@ can receive a call."
      (let* ((call (start-call-on-server server))
             (messages (receive-message-from-client call))
             (message (apply #'concatenate '(array (unsigned-byte 8) (*)) messages)))
+       (send-initial-metadata call)
        (unwind-protect
             (let* ((method (find (call-method-name call)
                                  methods
@@ -211,7 +201,9 @@ can receive a call."
                              deserialized-message call))
                    (serialized-response
                     (funcall (method-details-serializer method) response)))
-              (send-message-to-client call serialized-response))
+              (server-send-message call serialized-response)
+              (server-send-status call)
+              (server-recv-close call))
          (free-call-data call)))))
 
 (defun run-grpc-server (address methods
