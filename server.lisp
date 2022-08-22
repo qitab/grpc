@@ -69,36 +69,6 @@
                      :method-name method
                      :ops-plist nil)))
 
-(defun receive-message-from-client (call)
-  "Receive a message from the client for a CALL."
-  (declare (type call call))
-  (let* ((tag (cffi:foreign-alloc :int))
-         (c-call (call-c-call call))
-         (receive-op (create-new-grpc-ops 1))
-         (ops-plist (prepare-ops receive-op :recv-message t))
-         (call-code (call-start-batch c-call receive-op 1 tag)))
-    (unless (eql call-code :grpc-call-ok)
-      (grpc-ops-free receive-op 1)
-      (cffi:foreign-free tag)
-      (error 'grpc-call-error :call-error call-code))
-    (when (completion-queue-pluck *completion-queue* tag)
-      (cffi:foreign-free tag)
-      (let* ((response-byte-buffer
-               (get-grpc-op-recv-message receive-op (getf ops-plist :recv-message)))
-             (message
-               (unless (cffi:null-pointer-p response-byte-buffer)
-                 (loop for index from 0
-                         to (1- (get-grpc-byte-buffer-slice-buffer-count
-                                 response-byte-buffer))
-                       collecting (get-bytes-from-grpc-byte-buffer
-                                   response-byte-buffer index)
-                         into message
-                       finally
-                          (grpc-byte-buffer-destroy response-byte-buffer)
-                          (return message)))))
-        (grpc-ops-free receive-op 1)
-        message))))
-
 (defun send-initial-metadata (call)
   "Send the GRPC_OP_SEND_INITIAL_METADATA from the server through a CALL"
   (declare (type call call))
@@ -107,27 +77,6 @@
          (tag (cffi:foreign-alloc :int))
          (ops (create-new-grpc-ops num-ops))
          (ops-plist (prepare-ops ops :send-metadata t))
-         (call-code (call-start-batch c-call ops num-ops tag)))
-    (declare (ignore ops-plist))
-    (unless (eql call-code :grpc-call-ok)
-      (cffi:foreign-free tag)
-      (grpc-ops-free ops num-ops)
-      (error 'grpc-call-error :call-error call-code))
-    (let ((cqp-p (completion-queue-pluck *completion-queue* tag)))
-      (grpc-ops-free ops num-ops)
-      (cffi:foreign-free tag)
-      cqp-p)))
-
-(defun server-send-message (call bytes-to-send)
-  "Send the GRPC_OP_SEND_MESSAGE message encoded in BYTES-TO-SEND to the server through a CALL"
-  (declare (type call call))
-  (let* ((num-ops 1)
-         (c-call (call-c-call call))
-         (tag (cffi:foreign-alloc :int))
-         (ops (create-new-grpc-ops num-ops))
-         (grpc-slice
-          (convert-bytes-to-grpc-byte-buffer bytes-to-send))
-         (ops-plist (prepare-ops ops :send-message grpc-slice))
          (call-code (call-start-batch c-call ops num-ops tag)))
     (declare (ignore ops-plist))
     (unless (eql call-code :grpc-call-ok)
@@ -187,7 +136,7 @@ can receive a call."
                   (< calls-received exit-count))
         do
      (let* ((call (start-call-on-server server))
-            (messages (receive-message-from-client call))
+            (messages (receive-message call))
             (message (apply #'concatenate '(array (unsigned-byte 8) (*)) messages)))
        (send-initial-metadata call)
        (unwind-protect
@@ -202,7 +151,7 @@ can receive a call."
                              deserialized-message call))
                    (serialized-response
                     (funcall (method-details-serializer method) response)))
-              (server-send-message call serialized-response)
+              (send-message call serialized-response)
               (server-send-status call)
               (server-recv-close call))
          (free-call-data call)))))

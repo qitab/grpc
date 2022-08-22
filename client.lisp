@@ -121,63 +121,6 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
        (grpc-credentials-release ssl-credentials)
        (grpc-channel-destroy ,bound-channel))))
 
-(defun receive-message (call)
-  "Receive a message from the server for a CALL."
-  (declare (type call call))
-  (let* ((tag (cffi:foreign-alloc :int))
-         (c-call (call-c-call call))
-         (receive-op (create-new-grpc-ops 1))
-         (ops-plist (prepare-ops receive-op :recv-message t))
-         (call-code (call-start-batch c-call receive-op 1 tag)))
-    (unless (eql call-code :grpc-call-ok)
-      (grpc-ops-free receive-op 1)
-      (cffi:foreign-free tag)
-      (error 'grpc-call-error :call-error call-code))
-    (when (completion-queue-pluck *completion-queue* tag)
-      (cffi:foreign-free tag)
-      (let* ((response-byte-buffer
-               (get-grpc-op-recv-message receive-op (getf ops-plist :recv-message)))
-             (message
-               (unless (cffi:null-pointer-p response-byte-buffer)
-                 (loop for index from 0
-                         to (1- (get-grpc-byte-buffer-slice-buffer-count
-                                 response-byte-buffer))
-                       collecting (convert-grpc-slice-to-bytes
-                                   (get-grpc-slice-from-grpc-byte-buffer
-                                    response-byte-buffer index))
-                         into message
-                       finally
-                          (grpc-byte-buffer-destroy response-byte-buffer)
-                          (return message)))))
-        (grpc-ops-free receive-op 1)
-        (check-server-status
-         (call-c-ops call)
-         (getf (call-ops-plist call) :client-recv-status))
-        message))))
-
-(defun send-message (call bytes-to-send)
-  "Send a message encoded in BYTES-TO-SEND to the server through a CALL."
-  (declare (type call call))
-  (let* ((c-call (call-c-call call))
-         (tag (cffi:foreign-alloc :int))
-         (send-op (create-new-grpc-ops 1))
-         (grpc-slice
-           (convert-bytes-to-grpc-byte-buffer bytes-to-send))
-         (ops-plist (prepare-ops send-op :send-message grpc-slice))
-         (call-code (call-start-batch c-call send-op 1 tag)))
-    (declare (ignore ops-plist))
-    (unless (eql call-code :grpc-call-ok)
-      (cffi:foreign-free tag)
-      (grpc-ops-free send-op 1)
-      (error 'grpc-call-error :call-error call-code))
-    (let ((cqp-p (completion-queue-pluck *completion-queue* tag)))
-      (grpc-ops-free send-op 1)
-      (cffi:foreign-free tag)
-      (check-server-status
-       (call-c-ops call)
-       (getf (call-ops-plist call) :client-recv-status))
-      cqp-p)))
-
 (defun client-close (call)
   "Close the client side of a CALL."
   (declare (type call call))
@@ -192,13 +135,17 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
       (error 'grpc-call-error :call-error call-code))
     (let ((ok (completion-queue-pluck *completion-queue* tag)))
       (cffi:foreign-free tag)
-      (unless ok
-        (check-server-status
-         (call-c-ops call)
-         (getf (call-ops-plist call) :client-recv-status)))
+      (unless ok (check-server-status call))
       (values))))
 
-(defun check-server-status (ops receive-status-on-client-index)
+(defun check-server-status (call)
+  "Check the server status with data from a CALL object"
+  (declare (type call call))
+  (%check-server-status
+   (call-c-ops call)
+   (getf (call-ops-plist call) :client-recv-status)))
+
+(defun %check-server-status (ops receive-status-on-client-index)
   "Verify the server status is :grpc-status-ok. Requires the OPS containing the
 RECEIVE_STATUS_ON_CLIENT op and RECEIVE-STATUS-ON-CLIENT-INDEX in the ops."
   (let ((server-status
@@ -225,20 +172,6 @@ string to direct the call to."
                :c-tag tag
                :c-ops ops
                :ops-plist ops-plist)))
-
-(defun free-call-data (call)
-  "Free the call data stored in CALL-OBJ."
-  (declare (type call call))
-  (let* ((c-call (call-c-call call))
-         (tag (call-c-tag call))
-         (ops (call-c-ops call)))
-    (unless (cffi:null-pointer-p ops)
-      (completion-queue-pluck *completion-queue* tag)
-      (cffi:foreign-free tag))
-    (grpc-call-unref c-call)
-    ;; The number of ops used to start the call,
-    ;; see START-CALL.
-    (grpc-ops-free ops (/ (length (call-ops-plist call)) 2))))
 
 (defun grpc-call (channel service-method-name bytes-to-send
                   server-stream client-stream)

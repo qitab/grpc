@@ -30,9 +30,9 @@ Parameters
                    :ops-plist nil))
 
 (deftest test-server-check-error-success (server-suite)
-  "Validate that send-initial-metadata, server-send-message, server-send-status, server-recv-close,
-receive-message-from-client methods properly handle the scenario and check for errors
-when a call code of grpc-call-error is sent."
+  "Validate that send-initial-metadata, send-message, server-send-status,
+server-recv-close, receive-message methods properly handle the scenario
+ and check for errors when a call code of grpc-call-error is sent."
   (let* ((call-object (make-null-call))
          (message "Test")
          (text-result (flexi-streams:string-to-octets message)))
@@ -40,16 +40,22 @@ when a call code of grpc-call-error is sent."
                              (c-call ops num-ops tag)
                              (declare (ignore c-call ops num-ops tag))
                              :grpc-call-error))
-      (assert-condition grpc::grpc-call-error (grpc::send-initial-metadata call-object))
-      (assert-condition grpc::grpc-call-error (grpc::server-send-message call-object text-result))
-      (assert-condition grpc::grpc-call-error (grpc::server-send-status call-object))
-      (assert-condition grpc::grpc-call-error (grpc::server-recv-close call-object))
-      (assert-condition grpc::grpc-call-error (grpc::receive-message-from-client call-object)))))
+      (assert-condition grpc::grpc-call-error
+                        (grpc::send-initial-metadata call-object))
+      (assert-condition grpc::grpc-call-error
+                        (grpc::send-message call-object text-result))
+      (assert-condition grpc::grpc-call-error
+                        (grpc::server-send-status call-object))
+      (assert-condition grpc::grpc-call-error
+                        (grpc::server-recv-close call-object))
+      (assert-condition grpc::grpc-call-error
+                        (grpc::receive-message call-object)))))
 
 (deftest test-server-return-true-success (server-suite)
-  "Validate that send-initial-metadata, server-send-message, server-send-status, server-recv-close,
-receive-message-from-client methods properly handle the scenario and return true
-when a call code of grpc-call-ok is sent."
+  "Validate that send-initial-metadata, send-message,
+server-send-status, server-recv-close, receive-message methods
+properly handle the scenario and return true when a call code
+ of grpc-call-ok is sent."
   (let* ((call-object (make-null-call))
          (message "Test")
          (text-result (flexi-streams:string-to-octets message)))
@@ -62,13 +68,15 @@ when a call code of grpc-call-ok is sent."
                              (declare (ignore completion_queue tag))
                              t))
       (assert-true (grpc::send-initial-metadata call-object))
-      (assert-true (grpc::server-send-message call-object text-result))
+      (assert-true (grpc::send-message call-object text-result))
       (assert-true (grpc::server-send-status call-object))
       (assert-true (grpc::server-recv-close call-object)))))
 
-(deftest test-server-receive-message-from-client-completion-queue-pluck-nil-success (server-suite)
-  "Validate that receive-message-from-client method properly handles the scenario and returns nil
-when a call code of grpc-call-ok and nil for completion-queue-pluck is sent"
+(deftest test-server-receive-message-completion-queue-pluck-nil-success
+    (server-suite)
+  "Validate that receive-message method properly handles the scenario and
+returns nil when a call code of grpc-call-ok and nil for completion-queue-pluck
+ is sent"
   (let ((call-object (make-null-call)))
     (with-mocked-functions ((grpc::call-start-batch
                              (c-call ops num-ops tag)
@@ -78,12 +86,13 @@ when a call code of grpc-call-ok and nil for completion-queue-pluck is sent"
                              (completion_queue tag)
                              (declare (ignore completion_queue tag))
                              nil))
-      (assert-false (grpc::receive-message-from-client call-object)))))
+      (assert-false (grpc::receive-message call-object)))))
 
-(deftest test-server-receive-message-from-client-get-grpc-op-recv-message-null-pointer-success (server-suite)
-  "Validate that receive-message-from-client method properly handles the scenario and returns nil
-when a call code of grpc-call-ok, nil for completion-queue-pluck and null-pointer for
-get-grpc-op-recv-message is sent"
+(deftest test-server-receive-message-get-grpc-op-recv-message-null-pointer-success
+    (server-suite)
+  "Validate that receive-message method properly handles the scenario and
+returns nil when a call code of grpc-call-ok, nil for completion-queue-pluck
+ and null-pointer for get-grpc-op-recv-message is sent"
   (let ((call-object (make-null-call)))
     (with-mocked-functions ((grpc::call-start-batch
                              (c-call ops num-ops tag)
@@ -97,4 +106,4 @@ get-grpc-op-recv-message is sent"
                              (op index)
                              (declare (ignore op index))
                              (cffi:null-pointer)))
-      (assert-false (grpc::receive-message-from-client call-object)))))
+      (assert-false (grpc::receive-message call-object)))))

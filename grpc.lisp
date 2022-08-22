@@ -17,4 +17,5 @@
    #:shutdown-grpc
    #:with-insecure-channel
    #:with-ssl-channel
-   #:grpc-call))
+   #:grpc-call
+   #:check-server-status))
