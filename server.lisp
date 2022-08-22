@@ -62,8 +62,9 @@
     (assert (not (cffi:null-pointer-p c-call)))
     (metadata-destroy metadata)
     (call-details-destroy call-details)
+    (cffi:foreign-free tag)
     (grpc::make-call :c-call c-call
-                     :c-tag tag
+                     :c-tag (cffi:null-pointer)
                      :c-ops (cffi:null-pointer)
                      :method-name method
                      :ops-plist nil)))
