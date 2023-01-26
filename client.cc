@@ -12,7 +12,7 @@
 #include <grpc/grpc.h>
 #include <grpc/byte_buffer.h>
 #include <grpc/impl/codegen/gpr_types.h>
-#include <grpc/impl/codegen/grpc_types.h>
+#include "third_party/grpc/include/grpc/impl/grpc_types.h"
 #include <grpc/impl/codegen/slice.h>
 #include <grpc/impl/codegen/status.h>
 #include <grpc/slice.h>
