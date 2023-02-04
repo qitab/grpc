@@ -35,7 +35,7 @@ jobs:
           sudo apt install -y build-essential autoconf libtool pkg-config
 
       - name: Clone gRPC Github repo
-        run: git clone --recurse-submodules -b v1.46.3 --depth 1 --shallow-submodules https://github.com/grpc/grpc
+        run: git clone --recurse-submodules --depth 1 --shallow-submodules https://github.com/grpc/grpc
 
       - name: Build and install gRPC c++
         run: |
