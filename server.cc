@@ -5,8 +5,8 @@
 #include <grpc/grpc.h>
 #include <grpc/grpc_security.h>
 #include <grpc/grpc_security_constants.h>
-#include <grpc/impl/codegen/slice.h>
-#include <grpc/impl/codegen/status.h>
+#include <grpc/impl/slice_type.h>
+#include <grpc/status.h>
 
 namespace lisp {
 namespace lisp_grpc {

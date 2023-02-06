@@ -4,18 +4,19 @@
 // license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
 
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
 #include <cstddef>
 
-#include <grpc/grpc.h>
 #include <grpc/byte_buffer.h>
-#include <grpc/impl/codegen/gpr_types.h>
+#include <grpc/grpc.h>
 #include <grpc/impl/grpc_types.h>
-#include <grpc/impl/codegen/slice.h>
-#include <grpc/impl/codegen/status.h>
+#include <grpc/impl/slice_type.h>
 #include <grpc/slice.h>
+#include <grpc/status.h>
+#include <grpc/support/time.h>
 
 namespace lisp {
 namespace lisp_grpc {
