@@ -34,7 +34,7 @@ using lisp::grpc::integration_testing::HelloReply;
 using lisp::grpc::integration_testing::HelloRequest;
 using lisp::grpc::integration_testing::grpc_gen::Greeter;
 
-ABSL_FLAG(int32, port, 0 , "Port server listening on.");
+ABSL_FLAG(int32_t, port, 0, "Port server listening on.");
 ABSL_FLAG(std::string, auth_mechanism, "", "Authentication mechanism.");
 ABSL_FLAG(std::string, root_cert_path, "", "Path to root certificates.");
 ABSL_FLAG(std::string, private_key_path, "", "Path to private key.");
