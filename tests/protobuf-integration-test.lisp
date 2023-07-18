@@ -6,8 +6,8 @@
 
 (defpackage #:grpc.test.protobuf-integration
   (:use #:cl
-        #:clunit
         #:cl-protobufs
+        #:clunit
         #:grpc)
   (:import-from #:grpc.test #:with-mocked-functions)
   (:local-nicknames (#:test-proto #:cl-protobufs.lisp.grpc.unit-testing))
