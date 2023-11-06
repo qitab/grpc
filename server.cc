@@ -87,6 +87,10 @@ grpc_server* start_server(grpc_completion_queue* cq,
 void shutdown_server(grpc_server* server, grpc_completion_queue* cq, void* tag) {
   if (server == nullptr) return;
   grpc_server_shutdown_and_notify(server, cq, tag);
+  grpc_completion_queue_pluck(cq,
+                              tag,
+                              gpr_inf_future(GPR_CLOCK_MONOTONIC),
+                              nullptr);
   grpc_server_destroy(server);
 }
 
