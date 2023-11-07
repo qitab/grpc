@@ -5,7 +5,6 @@
 #include <grpc/grpc.h>
 #include <grpc/grpc_security.h>
 #include <grpc/grpc_security_constants.h>
-#include <grpc/impl/slice_type.h>
 #include <grpc/status.h>
 
 namespace lisp {
@@ -79,7 +78,7 @@ grpc_server* start_server(grpc_completion_queue* cq,
 
   grpc_server_register_completion_queue(server, cq, nullptr);
 
-  grpc_server_add_http2_port(server, server_address, server_creds);
+  grpc_server_add_secure_http2_port(server, server_address, server_creds);
 
   return server;
 }
