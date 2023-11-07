@@ -12,8 +12,7 @@
 
 #include <grpc/byte_buffer.h>
 #include <grpc/grpc.h>
-#include <grpc/impl/grpc_types.h>
-#include <grpc/impl/slice_type.h>
+#include <grpc/impl/codegen/grpc_types.h>
 #include <grpc/slice.h>
 #include <grpc/status.h>
 #include <grpc/support/time.h>

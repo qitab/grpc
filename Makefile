@@ -12,6 +12,7 @@
 GRPC_ROOT ?= /usr/local
 LIBS = -lgrpc -lgpr
 CFLAGS = $(shell pkg-config grpc --cflags) -I$(GRPC_ROOT)/include
+CXXFLAGS = -std=c++14 -I$(GRPC_ROOT)/include -I.
 LDFLAGS = -L$(GRPC_ROOT)/lib $(LIBS)
 OFILES = client.o client_auth.o server.o
 
