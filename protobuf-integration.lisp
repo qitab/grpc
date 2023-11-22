@@ -177,3 +177,5 @@ Parameters
                      :cq cq
                      :num-threads num-threads
                      :dispatch-requests dispatch-requests)))
+
+(cl:export '(run-grpc-proto-server))
