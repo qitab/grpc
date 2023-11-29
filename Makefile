@@ -11,7 +11,7 @@
 # when installing it.
 GRPC_ROOT ?= /usr/local
 LIBS = -lgrpc -lgpr
-CFLAGS = $(shell pkg-config grpc --cflags) -I$(GRPC_ROOT)/include
+CXXFLAGS = $(shell pkg-config grpc --cflags) -I$(GRPC_ROOT)/include -fPIC
 LDFLAGS = -L$(GRPC_ROOT)/lib $(LIBS)
 OFILES = client.o client_auth.o server.o
 
