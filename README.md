@@ -7,17 +7,29 @@
 
 ## Overview
 
-This package defines a [gRPC](https://grpc.io/) client library for Common Lisp.
-It wraps gRPC core functions with CFFI calls and uses those core functions to
-create and use a client. client.lisp contains all the necessary functions to
+This package defines a [gRPC](https://grpc.io/) library for Common Lisp.
+It wraps gRPC core functions with CFFI calls.
+
+``client.lisp`` contains all the necessary functions to
 create a gRPC client by creating channels (connections between client and
 server) and calls (requests to a server).
-
 Currently there is support for synchronous and streaming calls over
-
 SSL, and insecure channels.
 
-Support for implementing gRPC servers is in development.
+``server.lisp`` contains a ``run-grpc-server`` function that implements an insecure gRPC server.
+
+If your service is defined by a protobuf, ``protobuf-integration.lisp`` contains a ``run-grpc-proto-server`` function that serves a gRPC/protobuf service.
+
+
+## Installation
+
+1. Install the gRPC library for your platform (e.g. via a package manager).
+
+2. Clone this repository into [a location findable by ASDF](https://asdf.common-lisp.dev/asdf.html#Configuring-ASDF-to-find-your-systems).
+
+3. In this directory, build the library stub by running ``make``. You may need to make adjustments to the *Makefile* for your platform.
+
+4. Load and use this system in your application, e.g. at a REPL with ``(asdf:load-system "grpc")`` or via a ``defsystem``.
 
 ## Usage
 
@@ -229,6 +241,21 @@ Will safely cleanup any data leftover in the `call` object.
 #### Example
 
 This example can be found in examples/client/client-insecure.lisp.
+
+### Server
+
+A minimal gRPC service with protobuf integration looks like:
+
+```
+; load the protobuf-generated code here
+
+(defmethod cl-protobufs.testing-rpc::say-hello ((request cl-protobufs.testing:hello-request) call)
+  (make-hello-reply :name "world")
+
+(defun main ()
+  (grpc:init-grpc)
+  (grpc::run-grpc-proto-server "localhost:8080" 'cl-protobufs.testing:greeter))
+```
 
 ## Further Reading
 
