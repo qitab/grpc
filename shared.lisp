@@ -418,6 +418,27 @@ i of grpc_byte_buffer BUFFER."
 these operation guide the interaction between the client and server."
   (num-ops :int))
 
+(defun make-metadata (metadata)
+  "Sets OP[INDEX] to a Send Initial Metadata operation by adding metadata
+METADATA, the count of metadata COUNT, and the flag FLAG."
+  (let* ((arr-size (length metadata))
+         (metadata
+          (loop for (key value) in metadata
+                collect
+                (cffi:foreign-funcall "lisp_make_grpc_metadata"
+                                      :string key
+                                      :string value)))
+         (l-arr (make-array (list arr-size)
+                            :initial-contents metadata)))
+    (cffi:with-foreign-array (arr l-arr (list :array :int64 arr-size))
+      (cffi:foreign-funcall "create_new_grpc_metadata_array_with_data"
+                            :pointer arr
+                            :size arr-size))))
+
+
+
+
+
 (defun make-send-metadata-op (op metadata
                               &key count flag
                                 index)

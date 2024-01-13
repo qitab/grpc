@@ -63,6 +63,14 @@ void* new_tag(int num) {
   return new int(num);
 }
 
+grpc_metadata_array* create_new_grpc_metadata_array_with_data(grpc_metadata* metadata, size_t count) {
+  grpc_metadata_array* arr = new grpc_metadata_array();
+  grpc_metadata_array_init(arr);
+  arr->count = count;
+  if (count > 0) arr->metadata = metadata;
+  return arr;
+}
+
 grpc_metadata_array* create_new_grpc_metadata_array() {
   grpc_metadata_array* arr = new grpc_metadata_array();
   grpc_metadata_array_init(arr);
@@ -116,6 +124,19 @@ void grpc_ops_free(grpc_op* ops, int size) {
 
   }
   free(ops);
+}
+
+grpc_metadata* lisp_make_grpc_metadata(const char* key,
+                                       const char* value) {
+  grpc_slice slice_key = grpc_slice_from_copied_string(key);
+  grpc_slice slice_value = grpc_slice_from_copied_string(value);
+
+  grpc_metadata* metadata = new grpc_metadata;
+  *metadata = grpc_metadata {
+    slice_key,
+    slice_value,
+  };
+  return metadata;
 }
 
 // Takes in a preallocated grpc_op array.
