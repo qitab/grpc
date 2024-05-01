@@ -5,7 +5,7 @@
 // https://opensource.org/licenses/MIT.
 
 #include <grpc/grpc_security.h>
-#include "third_party/grpc/include/grpc/credentials.h"
+#include <grpcpp/security/credentials.h>
 
 namespace lisp {
 namespace grpc {
