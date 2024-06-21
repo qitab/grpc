@@ -45,12 +45,19 @@ additional args ARGS for client information. If CREDS is passed then a secure
 channel will be created using CREDS else an insecure channel will be used."
   (c-grpc-client-new-channel creds target args))
 
-(defun service-method-call (channel call-name cq)
+(defun service-method-call (channel call-name cq &optional (deadline-seconds *call-deadline*))
   "A wrapper to create a grpc_call pointer that will be used to call CALL-NAME
-on the CHANNEL provided and store the result in the completion queue CQ."
-  (cffi:foreign-funcall "lisp_grpc_channel_create_call"
-                        :pointer channel :string call-name :pointer cq
-                        :pointer))
+on the CHANNEL provided and store the result in the completion queue CQ. A
+deadline can be set with DEADLINE-SECONDS."
+  (let ((deadline-pointer (if deadline-seconds
+                              (cffi:foreign-alloc :size :initial-element deadline-seconds)
+                              (cffi:null-pointer))))
+    (prog1
+        (cffi:foreign-funcall "lisp_grpc_channel_create_call"
+                              :pointer channel :string call-name :pointer cq :pointer deadline-pointer
+                              :pointer)
+      (unless (cffi:null-pointer-p deadline-pointer)
+        (cffi:foreign-free deadline-pointer)))))
 
 
 ;; Auxiliary Functions

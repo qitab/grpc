@@ -75,3 +75,29 @@ Parameters
              (assert-true (string=  actual-client-response expected-client-response))
              (bordeaux-threads:join-thread thread)))))
   (grpc:shutdown-grpc))
+
+(deftest test-client-server-deadline (server-suite)
+  (grpc:init-grpc)
+  (unwind-protect
+       (let* ((expected-client-response "Hello World Back")
+              (hostname "localhost")
+              (method-name "xyz")
+              (port-number 8000)
+              (sem (bordeaux-threads:make-semaphore))
+              (thread (bordeaux-threads:make-thread
+                       (lambda () (run-server sem hostname method-name
+                                              port-number)))))
+         (bordeaux-threads:wait-on-semaphore sem)
+         (grpc:with-insecure-channel
+             (channel
+              (concatenate 'string hostname ":" (write-to-string port-number)))
+           (let* ((grpc::*call-deadline* 3)
+                  (message "Hello World")
+                  (response (grpc:grpc-call channel method-name
+                                            (flexi-streams:string-to-octets message)
+                                            nil nil))
+                  (actual-client-response (flexi-streams:octets-to-string
+                                           (car response))))
+             (assert-true (string=  actual-client-response expected-client-response))
+             (bordeaux-threads:join-thread thread)))))
+  (grpc:shutdown-grpc))

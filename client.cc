@@ -21,6 +21,17 @@
 namespace lisp {
 namespace lisp_grpc {
 
+// Creates a gpr_timespec equal to the 'time_s' in seconds.
+// This gpr_timespec can then be used as a deadline for a grpc call.
+//
+// Initial implmentation pulled from grpc tests:
+// https://github.com/grpc/grpc/blob/9a606ec6180812fbb2582646b1aeab1dfeb13475/test/core/test_util/test_config.cc#L78
+gpr_timespec grpc_timeout_seconds_to_deadline(size_t time_s) {
+  return gpr_time_add(
+      gpr_now(GPR_CLOCK_MONOTONIC),
+      gpr_time_from_millis(static_cast<size_t>(1e3) * time_s, GPR_TIMESPAN));
+}
+
 extern "C" {
 
 // Creates a grpc_call* given a 'channel', which manages the
@@ -30,11 +41,19 @@ extern "C" {
 // grpc_completion_queue_pluck or grpc_completion_queue_next is called.
 grpc_call* lisp_grpc_channel_create_call(grpc_channel* channel,
                                          const char* call_name,
-                                         grpc_completion_queue* cq) {
+                                         grpc_completion_queue* cq,
+                                         size_t* deadline_seconds) {
+  gpr_timespec send_deadline;
+  if (deadline_seconds != nullptr) {
+    send_deadline = grpc_timeout_seconds_to_deadline(*deadline_seconds);
+  } else {
+    deadline = gpr_inf_future(GPR_CLOCK_MONOTONIC);
+  }
+
   return grpc_channel_create_call(
       channel, nullptr, GRPC_PROPAGATE_DEFAULTS, cq,
       grpc_slice_from_copied_string(call_name), nullptr,
-      gpr_inf_future(GPR_CLOCK_MONOTONIC), nullptr);
+      send_deadline, nullptr);
 }
 
 // Prepares ops for completion queue pluck/next
