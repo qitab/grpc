@@ -18,4 +18,5 @@
    #:with-insecure-channel
    #:with-ssl-channel
    #:grpc-call
-   #:check-server-status))
+   #:check-server-status
+   #:*call-deadline*))

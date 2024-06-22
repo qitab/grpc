@@ -47,7 +47,7 @@ grpc_call* lisp_grpc_channel_create_call(grpc_channel* channel,
   if (deadline_seconds != nullptr) {
     send_deadline = grpc_timeout_seconds_to_deadline(*deadline_seconds);
   } else {
-    deadline = gpr_inf_future(GPR_CLOCK_MONOTONIC);
+    send_deadline = gpr_inf_future(GPR_CLOCK_MONOTONIC);
   }
 
   return grpc_channel_create_call(
