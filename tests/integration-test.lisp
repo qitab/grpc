@@ -77,6 +77,7 @@ Parameters
   (grpc:shutdown-grpc))
 
 (deftest test-client-server-deadline-can-set (server-suite)
+  "TODO(michaeldelago): The server should receive the deadline and be able to confirm that it's set"
   (grpc:init-grpc)
   (unwind-protect
        (let* ((expected-client-response "Hello World Back")
@@ -102,8 +103,8 @@ Parameters
              (bordeaux-threads:join-thread thread)))))
   (grpc:shutdown-grpc))
 
-;; TODO(michaeldelago): make it fail if the deadline gets exceeded
 (deftest test-client-server-deadline-can-fail (server-suite)
+  "TODO(michaeldelago): The server should return an error if the deadline is too high"
   (grpc:init-grpc)
   (unwind-protect
        (let* ((expected-client-response "Hello World Back")
