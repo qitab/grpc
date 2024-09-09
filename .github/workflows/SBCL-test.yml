@@ -43,22 +43,21 @@ jobs:
           mkdir cmake/build &&
           pushd cmake/build &&
           cmake -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=/usr/local/ ../.. &&
-          make -j 4 &&
-          sudo make install &&
+          make -j20 &&
+          sudo make install -j20 &&
           sudo ldconfig &&
           export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH &&
           cd $GITHUB_WORKSPACE/quicklisp/local-projects/grpc &&
-          sudo make &&
+          sudo make -j20 &&
           popd
 
-      - name: Install cl-protobufs (really only need protoc)
+      - name: Install protoc plug-in
         run: |
           cd $GITHUB_WORKSPACE/quicklisp/local-projects
           git clone https://github.com/qitab/cl-protobufs
           cd cl-protobufs/protoc
-          PROTOC_ROOT=/usr/local make
-          echo "::add-path:$GITHUB_WORKSPACE/quicklisp/local-projects/cl-protobufs/protoc/"
-          echo $PATH
+          cmake . -DCMAKE_CXX_STANDARD=17
+          cmake --build . --target install --parallel 16
 
       - name: Start gRPC
         run: |

@@ -53,14 +53,13 @@ jobs:
           sudo make &&
           popd
 
-      - name: Install cl-protobufs (really only need protoc)
+      - name: Install protoc plug-in
         run: |
           cd $GITHUB_WORKSPACE/quicklisp/local-projects
           git clone https://github.com/qitab/cl-protobufs
           cd cl-protobufs/protoc
-          PROTOC_ROOT=/usr/local make
-          echo "::add-path:$GITHUB_WORKSPACE/quicklisp/local-projects/cl-protobufs/protoc/"
-          echo $PATH
+          cmake . -DCMAKE_CXX_STANDARD=17
+          cmake --build . --target install --parallel 16
 
       - name: Start gRPC
         run: |
