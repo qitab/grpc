@@ -40,8 +40,8 @@ Parameters
         :utf-8))
      :action
      (lambda (message call)
-       (declare (ignore call))
-       (format t "~% response: ~A ~%" message)
+       (format t "~% call: ~A ~%" call)
+       (format t " response: ~A ~%" message)
        (concatenate 'string
                     message
                     " Back"))))
@@ -67,6 +67,60 @@ Parameters
              (channel
               (concatenate 'string hostname ":" (write-to-string port-number)))
            (let* ((message "Hello World")
+                  (response (grpc:grpc-call channel method-name
+                                            (flexi-streams:string-to-octets message)
+                                            nil nil))
+                  (actual-client-response (flexi-streams:octets-to-string
+                                           (car response))))
+             (assert-true (string=  actual-client-response expected-client-response))
+             (bordeaux-threads:join-thread thread)))))
+  (grpc:shutdown-grpc))
+
+(deftest test-client-server-deadline-can-set (server-suite)
+  "TODO(michaeldelago): The server should receive the deadline and be able to confirm that it's set"
+  (grpc:init-grpc)
+  (unwind-protect
+       (let* ((expected-client-response "Hello World Back")
+              (hostname "localhost")
+              (method-name "xyz")
+              (port-number 8000)
+              (sem (bordeaux-threads:make-semaphore))
+              (thread (bordeaux-threads:make-thread
+                       (lambda () (run-server sem hostname method-name
+                                              port-number)))))
+         (bordeaux-threads:wait-on-semaphore sem)
+         (grpc:with-insecure-channel
+             (channel
+              (concatenate 'string hostname ":" (write-to-string port-number)))
+           (let* ((grpc::*call-deadline* 3)
+                  (message "Hello World")
+                  (response (grpc:grpc-call channel method-name
+                                            (flexi-streams:string-to-octets message)
+                                            nil nil))
+                  (actual-client-response (flexi-streams:octets-to-string
+                                           (car response))))
+             (assert-true (string=  actual-client-response expected-client-response))
+             (bordeaux-threads:join-thread thread)))))
+  (grpc:shutdown-grpc))
+
+(deftest test-client-server-deadline-can-fail (server-suite)
+  "TODO(michaeldelago): The server should return an error if the deadline is too high"
+  (grpc:init-grpc)
+  (unwind-protect
+       (let* ((expected-client-response "Hello World Back")
+              (hostname "localhost")
+              (method-name "xyz")
+              (port-number 8000)
+              (sem (bordeaux-threads:make-semaphore))
+              (thread (bordeaux-threads:make-thread
+                       (lambda () (run-server sem hostname method-name
+                                              port-number)))))
+         (bordeaux-threads:wait-on-semaphore sem)
+         (grpc:with-insecure-channel
+             (channel
+              (concatenate 'string hostname ":" (write-to-string port-number)))
+           (let* ((grpc::*call-deadline* 3)
+                  (message "Hello World")
                   (response (grpc:grpc-call channel method-name
                                             (flexi-streams:string-to-octets message)
                                             nil nil))
