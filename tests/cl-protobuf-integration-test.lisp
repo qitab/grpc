@@ -56,6 +56,8 @@ Parameters
               (thread (bordeaux-threads:make-thread
                        (lambda () (run-server sem hostname port-number)))))
 
+         (bordeaux-threads:wait-on-semaphore sem)
+
          (grpc:with-insecure-channel
              (channel (concatenate 'string hostname ":"
                                    (write-to-string port-number)))
