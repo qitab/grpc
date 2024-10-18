@@ -21,6 +21,9 @@
 (defvar *completion-queue* nil "The global completion queue used to
 manage grpc calls.")
 
+(defvar *call-deadline* nil
+  "The deadline for a grpc call. The default, nil, specifies an infinite deadline")
+
 ;; gRPC Enums
 (cffi:defcenum grpc-security-level
   "Security levels of grpc transport security. It represents an inherent
