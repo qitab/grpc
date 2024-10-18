@@ -66,9 +66,13 @@ Parameters
          (grpc:with-insecure-channel
              (channel
               (concatenate 'string hostname ":" (write-to-string port-number)))
-           (let* ((message "Hello World")
+           (let* ((client-context
+                   (grpc::make-context :metadata '(("my" "name")
+                                                          ("is" "Lyra"))))
+                  (message "Hello World")
                   (response (grpc:grpc-call channel method-name
                                             (flexi-streams:string-to-octets message)
+                                            client-context
                                             nil nil))
                   (actual-client-response (flexi-streams:octets-to-string
                                            (car response))))

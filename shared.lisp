@@ -418,18 +418,39 @@ i of grpc_byte_buffer BUFFER."
 these operation guide the interaction between the client and server."
   (num-ops :int))
 
-(defun make-send-metadata-op (op metadata
-                              &key count flag
-                                index)
+(defun make-metadata (metadata)
   "Sets OP[INDEX] to a Send Initial Metadata operation by adding metadata
 METADATA, the count of metadata COUNT, and the flag FLAG."
-  (cffi:foreign-funcall "lisp_grpc_make_send_metadata_op"
-                        :pointer op
-                        :int index
-                        :pointer metadata
-                        :int count
-                        :int (convert-metadata-flag-to-integer flag)
-                        :void))
+  (let* ((arr-size (length metadata))
+         (metadata
+          (loop for (key value) in metadata
+                collect
+                (cffi:foreign-funcall "lisp_make_grpc_metadata"
+                                      :string key
+                                      :string value)))
+         (l-arr (make-array (list arr-size)
+                            :initial-contents metadata)))
+    (cffi:with-foreign-array (arr l-arr (list :array :int64 arr-size))
+      (cffi:foreign-funcall "create_new_grpc_metadata_array_with_data"
+                            :pointer arr
+                            :size arr-size))))
+
+(defun make-send-metadata-op (op metadata
+                              &key count flag
+                              index)
+  "Sets OP[INDEX] to a Send Initial Metadata operation by adding metadata
+METADATA, the count of metadata COUNT, and the flag FLAG."
+  (let ((metadata-ptr (if metadata
+                          (make-metadata metadata)
+                          (cffi:null-pointer))))
+
+    (cffi:foreign-funcall "lisp_grpc_make_send_metadata_op"
+                          :pointer op
+                          :int index
+                          :pointer metadata-ptr
+                          :int count
+                          :int (convert-metadata-flag-to-integer flag)
+                          :void)))
 
 (defun make-send-message-op (op message &key index)
   "Sets OP[INDEX] to a 'Send Message' operation that sends MESSAGE
@@ -509,7 +530,7 @@ want. Returns a plist containing keys being the op type and values being the ind
              (setf (getf ops-plist message-type) (incf cur-index))))
 
       (when send-metadata
-        (make-send-metadata-op ops (cffi:null-pointer)
+        (make-send-metadata-op ops send-metadata
                                :count 0 :flag 0 :index (next-marker :send-metadata)))
       (when send-message
         (make-send-message-op ops send-message :index (next-marker :send-message)))
@@ -585,9 +606,12 @@ macros and only call once."
   (method-name "" :type string)
   ;; This is a plist where the key is a keyword for a type of op
   ;; and the value is the index of that op in an op-array.
-  (ops-plist nil :type list))
+  (ops-plist nil :type list)
+  (context nil :type (or null client-context server-context)))
 
-;; Shared call functions
+(defstruct context
+  (deadline -1 :type integer)
+  (metadata nil :type list))
 
 (defun receive-message (call)
   "Receive a message from the client for a CALL."
@@ -628,7 +652,12 @@ macros and only call once."
          (ops (create-new-grpc-ops num-ops))
          (grpc-slice
           (convert-bytes-to-grpc-byte-buffer bytes-to-send))
-         (ops-plist (prepare-ops ops :send-message grpc-slice))
+         (context (call-context call))
+         (ops-plist (prepare-ops
+                     ops
+                     :send-message grpc-slice
+                     :send-metadata (and context
+                                         (context-metadata context))))
          (call-code (call-start-batch c-call ops num-ops tag)))
     (declare (ignore ops-plist))
     (unless (eql call-code :grpc-call-ok)
