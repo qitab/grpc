@@ -155,7 +155,7 @@ RECEIVE_STATUS_ON_CLIENT op and RECEIVE-STATUS-ON-CLIENT-INDEX in the ops."
 
 (defconstant +num-ops-for-starting-call+ 3)
 
-(defun start-grpc-call (channel service-method-name)
+(defun start-grpc-call (channel service-method-name client-context)
   "Start a grpc call. Requires a pointer to a grpc CHANNEL object, and a SERVICE-METHOD-NAME
 string to direct the call to."
   (let* ((num-ops-for-sending-message +num-ops-for-starting-call+)
@@ -171,9 +171,10 @@ string to direct the call to."
     (make-call :c-call c-call
                :c-tag tag
                :c-ops ops
-               :ops-plist ops-plist)))
+               :ops-plist ops-plist
+               :context client-context)))
 
-(defun grpc-call (channel service-method-name bytes-to-send
+(defun grpc-call (channel service-method-name bytes-to-send client-context
                   server-stream client-stream)
   "Uses CHANNEL to call SERVICE-METHOD-NAME on the server with BYTES-TO-SEND
 as the arguement to the method and returns the response<list of byte arrays>
@@ -182,7 +183,7 @@ BYTES-TO-SEND should be a list of byte-vectors each containing a message to
 send in a single call to the server. In the case of a server or bidirectional
 call we return a list a list of byte vectors each being a response from the server,
 otherwise it's a single byte vector list containing a single response."
-  (let* ((call (start-grpc-call channel service-method-name)))
+  (let* ((call (start-grpc-call channel service-method-name client-context)))
     (unwind-protect
          (progn
            (if client-stream
