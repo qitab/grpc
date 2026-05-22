@@ -147,7 +147,9 @@ Parameters
 ;; Streaming Unit Tests
 
 (deftest test-server-streaming (proto-server-suite)
-  (unless *google-inited* ;; init (setf *google-inited* t))
+  (unless *google-inited*
+    ;; init
+    (setf *google-inited* t))
   (grpc:init-grpc)
   (unwind-protect
        (let* ((hostname "localhost")
@@ -167,7 +169,9 @@ Parameters
     (grpc:shutdown-grpc)))
 
 (deftest test-client-streaming (proto-server-suite)
-  (unless *google-inited* ;; init (setf *google-inited* t))
+  (unless *google-inited*
+    ;; init
+    (setf *google-inited* t))
   (grpc:init-grpc)
   (unwind-protect
        (let* ((hostname "localhost")
@@ -187,7 +191,9 @@ Parameters
     (grpc:shutdown-grpc)))
 
 (deftest test-bidirectional-streaming (proto-server-suite)
-  (unless *google-inited* ;; init (setf *google-inited* t))
+  (unless *google-inited*
+    ;; init
+    (setf *google-inited* t))
   (grpc:init-grpc)
   (unwind-protect
        (let* ((hostname "localhost")
@@ -210,7 +216,9 @@ Parameters
     (grpc:shutdown-grpc)))
 
 (deftest test-server-abort-streaming (proto-server-suite)
-  (unless *google-inited* ;; init (setf *google-inited* t))
+  (unless *google-inited*
+    ;; init
+    (setf *google-inited* t))
   (grpc:init-grpc)
   (unwind-protect
        (let* ((hostname "localhost")
