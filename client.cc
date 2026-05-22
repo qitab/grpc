@@ -104,11 +104,11 @@ void grpc_ops_free(grpc_op* ops, int size) {
       delete ops[i].data.recv_message.recv_message;
     }
     if (ops[i].op == GRPC_OP_RECV_STATUS_ON_CLIENT) {
-      grpc_metadata_array_destroy(ops[i].data.recv_status_on_client.
-                                  trailing_metadata);
+      grpc_metadata_array_destroy(
+          ops[i].data.recv_status_on_client.trailing_metadata);
+      delete ops[i].data.recv_status_on_client.status;
+      delete ops[i].data.recv_status_on_client.status_details;
     }
-    delete ops[i].data.recv_status_on_client.status;
-    delete ops[i].data.recv_status_on_client.status_details;
     if (ops[i].op == GRPC_OP_RECV_INITIAL_METADATA) {
       grpc_metadata_array_destroy(ops[i].data.recv_initial_metadata
                                       .recv_initial_metadata);
@@ -247,6 +247,8 @@ void lisp_grpc_server_make_close_op(grpc_op* op, int index, int* cancelled,
   op[index].reserved = nullptr;
 }
 
+grpc_slice* convert_string_to_grpc_slice(const char* str);
+
 // Takes in a preallocated grpc_op array.
 // Stores the given metadata, flags, and count for the
 // GRPC_OP_SEND_STATUS_FROM_SERVER operation.
@@ -261,6 +263,7 @@ void lisp_grpc_make_send_status_from_server_op(grpc_op* op,
   op[index].data.send_status_from_server.trailing_metadata_count =
       metadata_count;
   op[index].data.send_status_from_server.status = status;
+  op[index].data.send_status_from_server.status_details = nullptr;
   op[index].flags = flags;
   op[index].reserved = nullptr;
 }

@@ -67,7 +67,8 @@
                      :c-tag (cffi:null-pointer)
                      :c-ops (cffi:null-pointer)
                      :method-name method
-                     :ops-plist nil)))
+                     :ops-plist nil
+                     :is-server-call t)))
 
 (defun send-initial-metadata (call)
   "Send the GRPC_OP_SEND_INITIAL_METADATA from the server through a CALL"
@@ -88,14 +89,16 @@
       (cffi:foreign-free tag)
       cqp-p)))
 
-(defun server-send-status (call)
+(defun server-send-status (call &optional (status-code :grpc-status-ok) (with-recv-close nil))
   "Send the GRPC_OP_SEND_STATUS_FROM_SERVER from the server through a CALL"
   (declare (type call call))
-  (let* ((num-ops 1)
+  (let* ((num-ops (if with-recv-close 2 1))
          (c-call (call-c-call call))
          (tag (cffi:foreign-alloc :int))
          (ops (create-new-grpc-ops num-ops))
-         (ops-plist (prepare-ops ops :server-send-status :grpc-status-ok))
+         (ops-plist (if with-recv-close
+                        (prepare-ops ops :server-recv-close t :server-send-status status-code)
+                        (prepare-ops ops :server-send-status status-code)))
          (call-code (call-start-batch c-call ops num-ops tag)))
     (declare (ignore ops-plist))
     (unless (eql call-code :grpc-call-ok)
@@ -135,25 +138,47 @@ can receive a call."
         while (or (not exit-count)
                   (< calls-received exit-count))
         do
-     (let* ((call (start-call-on-server server))
-            (messages (receive-message call))
-            (message (apply #'concatenate '(array (unsigned-byte 8) (*)) messages)))
-       (send-initial-metadata call)
+     (let ((call (start-call-on-server server)))
        (unwind-protect
-            (let* ((method (find (call-method-name call)
-                                 methods
-                                 :test #'string=
-                                 :key #'method-details-name))
-                   (deserialized-message
-                    (funcall (method-details-deserializer method) message))
-                   (response
-                    (funcall (method-details-action method)
-                             deserialized-message call))
-                   (serialized-response
-                    (funcall (method-details-serializer method) response)))
-              (send-message call serialized-response)
-              (server-send-status call)
-              (server-recv-close call))
+            (let ((method (find (call-method-name call)
+                                methods
+                                :test #'string=
+                                :key #'method-details-name)))
+              (send-initial-metadata call)
+              (if method
+                  (handler-case
+                      (let ((response
+                             (if (method-details-input-streaming-p method)
+                                 (funcall (method-details-action method) call)
+                                 (let* ((messages (receive-message call))
+                                        (message (apply #'concatenate
+                                                        '(array (unsigned-byte 8) (*)) messages))
+                                        (deserialized-message
+                                         (funcall (method-details-deserializer method) message)))
+                                   (funcall (method-details-action method)
+                                            deserialized-message call)))))
+                        (unless (method-details-output-streaming-p method)
+                          (let ((serialized-response
+                                 (funcall (method-details-serializer method) response)))
+                            (send-message call serialized-response)))
+                        (unless (call-server-send-status-p call)
+                          (setf (call-server-send-status-p call) t)
+                          (server-send-status
+                           call :grpc-status-ok (method-details-input-streaming-p method)))
+                        (unless (method-details-input-streaming-p method)
+                          (server-recv-close call)))
+                    (grpc-server-abort (condition)
+                      (unless (call-server-send-status-p call)
+                        (setf (call-server-send-status-p call) t)
+                        (server-send-status call (abort-status-code condition)
+                                            (method-details-input-streaming-p method)))
+                      (unless (method-details-input-streaming-p method)
+                        (server-recv-close call))))
+                  (progn
+                    (unless (call-server-send-status-p call)
+                      (setf (call-server-send-status-p call) t)
+                      (server-send-status call :grpc-status-unimplemented nil))
+                    (server-recv-close call))))
          (free-call-data call)))))
 
 (defun run-grpc-server (address methods

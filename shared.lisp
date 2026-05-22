@@ -4,7 +4,7 @@
 ;;; license that can be found in the LICENSE file or at
 ;;; https://opensource.org/licenses/MIT.
 
-;;;; Lisp wrappers
+;;;; Lisp wrappers for gRPC C core
 
 (in-package #:grpc)
 
@@ -391,7 +391,9 @@ i of grpc_byte_buffer BUFFER."
   (deserializer #'identity :type function)
   (action #'identity :type function)
   (server-stream nil :type boolean)
-  (client-stream nil :type boolean))
+  (client-stream nil :type boolean)
+  (input-streaming-p nil :type boolean)
+  (output-streaming-p nil :type boolean))
 
 ;; Completion Queue Functions
 
@@ -554,19 +556,23 @@ grpc_slice*."
                                            "strlen"
                                            :pointer slice-string-pointer :int)))))
 
-;; General gRPC functions
+;; Init/Shutdown Functions
 
 (defun init-grpc ()
-  "Initializes the grpc library and the global *completion-queue* so that
-grpc functions can be used and the queue can be managed. Call before any gRPC
-functions or macros are called and only call once."
-  (cffi:foreign-funcall "grpc_init" :void)
+  "Initializes gRPC.
+Users should not call this directly but rather use with-grpc
+macros and only call once."
+  (cffi:foreign-funcall "grpc_init")
   (unless *completion-queue*
-    (setf *completion-queue* (grpc::c-grpc-completion-queue-create-for-pluck))))
+    (setf *completion-queue*
+          (cffi:foreign-funcall "grpc_completion_queue_create_for_pluck"
+                                :pointer (cffi:null-pointer)
+                                :pointer (cffi:null-pointer)
+                                :pointer))))
 
 (defun shutdown-grpc ()
-  "Shuts down the grpc library which frees up any internal memory and
-destroys *completion-queue*. Call when finished with all gRPC functions and
+  "Shut down gRPC.
+Users should not call this directly but rather use with-grpc
 macros and only call once."
   (when *completion-queue*
     (cffi:foreign-funcall "grpc_completion_queue_shutdown"
@@ -585,7 +591,30 @@ macros and only call once."
   (method-name "" :type string)
   ;; This is a plist where the key is a keyword for a type of op
   ;; and the value is the index of that op in an op-array.
-  (ops-plist nil :type list))
+  (ops-plist nil :type list)
+  (output-type nil :type symbol)
+  (input-type nil :type symbol)
+  (client-stream-closed-p nil :type boolean)
+  (call-cleaned-up-p nil :type boolean)
+  (client-stream-p nil :type boolean)
+  (server-stream-p nil :type boolean)
+  (initial-message-sent-p nil :type boolean)
+  (server-send-status-p nil :type boolean)
+  (is-server-call nil :type boolean)
+  (status-plucked-p nil :type boolean)
+  (status-checked-p nil :type boolean))
+
+(defmacro with-client-stream ((call-var start-form) &body body)
+  "Binds CALL-VAR to START-FORM, executes BODY, and ensures the call is closed and cleaned up."
+  `(let ((,call-var ,start-form))
+     (unwind-protect
+          (progn ,@body)
+       (when (and ,call-var (not (call-client-stream-closed-p ,call-var)))
+         (client-close ,call-var)
+         (setf (call-client-stream-closed-p ,call-var) t))
+       (when (and ,call-var (not (call-call-cleaned-up-p ,call-var)))
+         (free-call-data ,call-var)
+         (setf (call-call-cleaned-up-p ,call-var) t)))))
 
 ;; Shared call functions
 
@@ -648,7 +677,9 @@ macros and only call once."
          (ops (call-c-ops call))
          (status-error nil))
     (unless (cffi:null-pointer-p ops)
-      (completion-queue-pluck *completion-queue* tag)
+      (unless (call-status-plucked-p call)
+        (completion-queue-pluck *completion-queue* tag)
+        (setf (call-status-plucked-p call) t))
       (let ((server-status
              (recv-status-on-client-code ops (getf (call-ops-plist call) :client-recv-status))))
         (unless (eql server-status :grpc-status-ok)
@@ -656,5 +687,5 @@ macros and only call once."
       (cffi:foreign-free tag)
       (grpc-ops-free ops (/ (length (call-ops-plist call)) 2)))
     (grpc-call-unref c-call)
-    (when status-error
+    (when (and status-error (not (call-status-checked-p call)))
       (error 'grpc-call-error :call-error status-error))))

@@ -18,4 +18,12 @@
    #:with-insecure-channel
    #:with-ssl-channel
    #:grpc-call
-   #:check-server-status))
+   #:check-server-status
+   #:with-client-stream
+   #:stream-send
+   #:stream-receive
+   #:stream-close
+   #:stream-cleanup
+   #:do-stream-receive
+   #:grpc-server-abort
+   #:abort-server-stream))

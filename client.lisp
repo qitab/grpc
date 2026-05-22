@@ -143,15 +143,20 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
 (defun check-server-status (call)
   "Check the server status with data from a CALL object"
   (declare (type call call))
+  (unless (call-status-plucked-p call)
+    (completion-queue-pluck *completion-queue* (call-c-tag call))
+    (setf (call-status-plucked-p call) t))
   (%check-server-status
+   call
    (call-c-ops call)
    (getf (call-ops-plist call) :client-recv-status)))
 
-(defun %check-server-status (ops receive-status-on-client-index)
+(defun %check-server-status (call ops receive-status-on-client-index)
   "Verify the server status is :grpc-status-ok. Requires the OPS containing the
 RECEIVE_STATUS_ON_CLIENT op and RECEIVE-STATUS-ON-CLIENT-INDEX in the ops."
   (let ((server-status
           (recv-status-on-client-code ops receive-status-on-client-index)))
+    (setf (call-status-checked-p call) t)
     (unless (eql server-status :grpc-status-ok)
       (error 'grpc-call-error :call-error server-status))))
 
