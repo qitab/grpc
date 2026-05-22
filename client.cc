@@ -9,10 +9,12 @@
 #include <string.h>
 
 #include <cstddef>
+#include <cstdint>
 
 #include <grpc/byte_buffer.h>
 #include <grpc/grpc.h>
 #include <grpc/impl/grpc_types.h>
+#include <grpc/impl/propagation_bits.h>
 #include <grpc/impl/slice_type.h>
 #include <grpc/slice.h>
 #include <grpc/status.h>
@@ -30,11 +32,19 @@ extern "C" {
 // grpc_completion_queue_pluck or grpc_completion_queue_next is called.
 grpc_call* lisp_grpc_channel_create_call(grpc_channel* channel,
                                          const char* call_name,
-                                         grpc_completion_queue* cq) {
-  return grpc_channel_create_call(
-      channel, nullptr, GRPC_PROPAGATE_DEFAULTS, cq,
-      grpc_slice_from_copied_string(call_name), nullptr,
-      gpr_inf_future(GPR_CLOCK_MONOTONIC), nullptr);
+                                         grpc_completion_queue* cq,
+                                         double timeout) {
+  gpr_timespec deadline;
+  if (timeout < 0) {
+    deadline = gpr_inf_future(GPR_CLOCK_MONOTONIC);
+  } else {
+    deadline = gpr_time_add(
+        gpr_now(GPR_CLOCK_MONOTONIC),
+        gpr_time_from_micros((int64_t)(timeout * 1000000), GPR_TIMESPAN));
+  }
+  return grpc_channel_create_call(channel, nullptr, GRPC_PROPAGATE_DEFAULTS, cq,
+                                  grpc_slice_from_copied_string(call_name),
+                                  nullptr, deadline, nullptr);
 }
 
 // Prepares ops for completion queue pluck/next

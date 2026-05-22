@@ -35,7 +35,7 @@ given a cl-protobufs method-descriptor."
                  (position #\. (proto:proto-qualified-name method) :from-end t))))
     (concatenate 'string "/" package-name "." service-name "/" rpc-name)))
 
-(defgeneric start-call (channel method request response &key callback)
+(defgeneric start-call (channel method request response &key callback timeout)
   (:documentation
    "Starts a gRPC call for METHOD.
 
@@ -44,9 +44,10 @@ Parameters:
     METHOD is the cl-protobuf method we wish to call.
     REQUEST is the proto message to send.
     RESPONSE is not supported.
-    CALLBACK is not currently supported."))
+    CALLBACK is not currently supported.
+    TIMEOUT is the timeout for the call in seconds."))
 
-(defmethod start-call (channel method request response &key callback)
+(defmethod start-call (channel method request response &key callback (timeout -1.0d0))
   (assert (not (or callback response)) nil "CALLBACK and RESPONSE args not supported.")
   (let* ((qualified-method-name (get-qualified-method-name method))
          (output-type (proto:proto-output-type method))
@@ -56,7 +57,7 @@ Parameters:
                     (mapcar #'proto:serialize-to-bytes request)
                     (proto:serialize-to-bytes request)))
          (response (grpc-call channel qualified-method-name bytes
-                              server-stream client-stream)))
+                              server-stream client-stream timeout)))
     (flet ((deserialize-result (bytes)
              (proto:deserialize-from-bytes
               output-type
@@ -73,7 +74,7 @@ Parameters:
   (server-stream-p nil :type boolean)
   (initial-message-sent-p nil :type boolean))
 
-(defgeneric handle-client-stream-call (type &key channel method request call)
+(defgeneric handle-client-stream-call (type &key channel method request call timeout)
   (:documentation
    "Dispatch for different stream call types.
 
@@ -82,14 +83,15 @@ Parameters:
     CHANNEL is the channel to send a call over.
     METHOD is the cl-protobuf method-descriptor for the method we wish to call.
     REQUEST is the proto message to send.
-    CALL contains a proto-call object."))
+    CALL contains a proto-call object.
+    TIMEOUT is the timeout for the call in seconds."))
 
-(defmethod handle-client-stream-call ((type (eql :start)) &key channel method request call)
+(defmethod handle-client-stream-call ((type (eql :start)) &key channel method request call (timeout -1.0d0))
   "Start a gRPC call over a CHANNEL to a specific rpc METHOD.
 Ignores TYPE REQUEST and CALL."
   (declare (ignore type request call))
   (let* ((qualified-method-name (get-qualified-method-name method))
-         (call (start-grpc-call channel qualified-method-name)))
+         (call (start-grpc-call channel qualified-method-name timeout)))
     (make-proto-call
      :c-call (call-c-call call)
      :c-tag (call-c-tag call)
@@ -99,10 +101,10 @@ Ignores TYPE REQUEST and CALL."
      :client-stream-p (proto:proto-input-streaming-p method)
      :output-type (proto:proto-output-type method))))
 
-(defmethod handle-client-stream-call ((type (eql :send)) &key channel method request call)
+(defmethod handle-client-stream-call ((type (eql :send)) &key channel method request call timeout)
   "Send a REQUEST over a CALL.
-Ignores TYPE CHANNEL and METHOD."
-  (declare (ignore type channel method))
+Ignores TYPE CHANNEL, METHOD, and TIMEOUT."
+  (declare (ignore type channel method timeout))
   (when (proto-call-client-stream-closed-p call)
     (error 'proto-call-error :call-error "Tried to send message on closed stream"))
   (when (proto-call-call-cleaned-up-p call)
@@ -114,10 +116,10 @@ Ignores TYPE CHANNEL and METHOD."
   (setf (proto-call-initial-message-sent-p call) t)
   (send-message call (proto:serialize-to-bytes request)))
 
-(defmethod handle-client-stream-call ((type (eql :receive)) &key channel method request call)
+(defmethod handle-client-stream-call ((type (eql :receive)) &key channel method request call timeout)
   "Receive a message from a CHANNEL.
-Ignores TYPE CHANNEL METHOD and REQUEST."
-  (declare (ignore type channel method request))
+Ignores TYPE CHANNEL METHOD REQUEST and TIMEOUT."
+  (declare (ignore type channel method request timeout))
   (when (proto-call-call-cleaned-up-p call)
     (error 'proto-call-error :call-error "Tried to received message with call cleaned up."))
   (unless (proto-call-initial-message-sent-p call)
@@ -126,17 +128,17 @@ Ignores TYPE CHANNEL METHOD and REQUEST."
    (proto-call-output-type call)
    (apply #'concatenate 'proto:byte-vector (receive-message call))))
 
-(defmethod handle-client-stream-call ((type (eql :close)) &key channel method request call)
+(defmethod handle-client-stream-call ((type (eql :close)) &key channel method request call timeout)
   "Close a CALL from the client-side. Server side remains open.
-Ignores TYPE CHANNEL METHOD and REQUEST."
-  (declare (ignore type channel method request))
+Ignores TYPE CHANNEL METHOD REQUEST and TIMEOUT."
+  (declare (ignore type channel method request timeout))
   (setf (proto-call-client-stream-closed-p call) t)
   (client-close call))
 
-(defmethod handle-client-stream-call ((type (eql :cleanup)) &key channel method request call)
+(defmethod handle-client-stream-call ((type (eql :cleanup)) &key channel method request call timeout)
   "Cleanup the CALL data stored in a proto-call structure.
-Ignores TYPE CHANNEL METHOD and REQUEST."
-  (declare (ignore type channel method request))
+Ignores TYPE CHANNEL METHOD REQUEST and TIMEOUT."
+  (declare (ignore type channel method request timeout))
   (unless (proto-call-client-stream-closed-p call)
     (error 'proto-call-error :call-error "Tried to cleanup call before closing the call."))
   (free-call-data call))

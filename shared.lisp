@@ -645,9 +645,16 @@ macros and only call once."
   (declare (type call call))
   (let* ((c-call (call-c-call call))
          (tag (call-c-tag call))
-         (ops (call-c-ops call)))
+         (ops (call-c-ops call))
+         (status-error nil))
     (unless (cffi:null-pointer-p ops)
       (completion-queue-pluck *completion-queue* tag)
+      (let ((server-status
+             (recv-status-on-client-code ops (getf (call-ops-plist call) :client-recv-status))))
+        (unless (eql server-status :grpc-status-ok)
+          (setf status-error server-status)))
       (cffi:foreign-free tag)
       (grpc-ops-free ops (/ (length (call-ops-plist call)) 2)))
-    (grpc-call-unref c-call)))
+    (grpc-call-unref c-call)
+    (when status-error
+      (error 'grpc-call-error :call-error status-error))))

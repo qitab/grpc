@@ -45,11 +45,13 @@ additional args ARGS for client information. If CREDS is passed then a secure
 channel will be created using CREDS else an insecure channel will be used."
   (c-grpc-client-new-channel creds target args))
 
-(defun service-method-call (channel call-name cq)
+(defun service-method-call (channel call-name cq &optional (timeout -1.0d0))
   "A wrapper to create a grpc_call pointer that will be used to call CALL-NAME
-on the CHANNEL provided and store the result in the completion queue CQ."
+on the CHANNEL provided and store the result in the completion queue CQ.
+TIMEOUT is the timeout for the call in seconds. A negative value means no timeout."
   (cffi:foreign-funcall "lisp_grpc_channel_create_call"
                         :pointer channel :string call-name :pointer cq
+                        :double (float timeout 0.0d0)
                         :pointer))
 
 
@@ -155,12 +157,12 @@ RECEIVE_STATUS_ON_CLIENT op and RECEIVE-STATUS-ON-CLIENT-INDEX in the ops."
 
 (defconstant +num-ops-for-starting-call+ 3)
 
-(defun start-grpc-call (channel service-method-name)
+(defun start-grpc-call (channel service-method-name &optional (timeout -1.0d0))
   "Start a grpc call. Requires a pointer to a grpc CHANNEL object, and a SERVICE-METHOD-NAME
-string to direct the call to."
+string to direct the call to. TIMEOUT is the timeout for the call in seconds."
   (let* ((num-ops-for-sending-message +num-ops-for-starting-call+)
          (c-call (service-method-call channel service-method-name
-                                      *completion-queue*))
+                                      *completion-queue* timeout))
          (ops (create-new-grpc-ops num-ops-for-sending-message))
          (tag (cffi:foreign-alloc :int))
          (ops-plist
@@ -174,15 +176,16 @@ string to direct the call to."
                :ops-plist ops-plist)))
 
 (defun grpc-call (channel service-method-name bytes-to-send
-                  server-stream client-stream)
+                  server-stream client-stream &optional (timeout -1.0d0))
   "Uses CHANNEL to call SERVICE-METHOD-NAME on the server with BYTES-TO-SEND
 as the arguement to the method and returns the response<list of byte arrays>
 from the server. If we are doing a client or bidirectional streaming call then
 BYTES-TO-SEND should be a list of byte-vectors each containing a message to
 send in a single call to the server. In the case of a server or bidirectional
 call we return a list a list of byte vectors each being a response from the server,
-otherwise it's a single byte vector list containing a single response."
-  (let* ((call (start-grpc-call channel service-method-name)))
+otherwise it's a single byte vector list containing a single response.
+TIMEOUT is the timeout for the call in seconds."
+  (let* ((call (start-grpc-call channel service-method-name timeout)))
     (unwind-protect
          (progn
            (if client-stream
