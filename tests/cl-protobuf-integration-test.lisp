@@ -27,14 +27,19 @@ Parameters
                                         :signal-condition-on-fail t))
 
 (defmethod ut-rpc::say-hello ((request ut:hello-request) rpc)
-  (declare (ignore rpc))
   (when (string= (ut:hello-request.name request) "prolonged")
     (sleep 1))
-  (ut:make-hello-reply
-   :message
-   (concatenate 'string
-                (ut:hello-request.name request)
-                " Back")))
+  (let* ((metadata (when (grpc::call-context rpc)
+                     (grpc::context-metadata (grpc::call-context rpc))))
+         (is-val (when metadata
+                   (second (assoc "is" metadata :test #'string=)))))
+    (ut:make-hello-reply
+     :message
+     (concatenate 'string
+                  (ut:hello-request.name request)
+                  " Back"
+                  (if is-val (format nil " ~A" is-val) "")))))
+
 
 (defun run-server (sem hostname port-number)
   (grpc::run-grpc-proto-server
@@ -236,3 +241,30 @@ Parameters
              (grpc:stream-cleanup call)))
          (bordeaux-threads:join-thread thread))
     (grpc:shutdown-grpc)))
+
+(deftest test-client-server-integration-metadata-success (proto-server-suite)
+  (unless *google-inited*
+    ;; init
+    (setf *google-inited* t))
+  (grpc:init-grpc)
+  (unwind-protect
+       (let* ((expected-client-response "Hello World Back Lyra")
+              (hostname "localhost")
+              (port-number 8007)
+              (sem (bordeaux-threads:make-semaphore))
+              (thread (bordeaux-threads:make-thread
+                       (lambda () (run-server sem hostname port-number)))))
+
+         (bordeaux-threads:wait-on-semaphore sem)
+
+         (grpc:with-insecure-channel
+             (channel (concatenate 'string hostname ":"
+                                   (write-to-string port-number)))
+           ;; Unary call with metadata
+           (let* ((message (ut:make-hello-request :name "Hello World"))
+                  (response (ut-rpc:call-say-hello channel message :metadata '(("my" "name") ("is" "Lyra")))))
+             (assert-true (string= (ut:hello-reply.message response)
+                                   expected-client-response))))
+         (bordeaux-threads:join-thread thread))
+    (grpc:shutdown-grpc)))
+

@@ -162,26 +162,38 @@ RECEIVE_STATUS_ON_CLIENT op and RECEIVE-STATUS-ON-CLIENT-INDEX in the ops."
 
 (defconstant +num-ops-for-starting-call+ 3)
 
-(defun start-grpc-call (channel service-method-name &optional (timeout -1.0d0))
+(defun start-grpc-call (channel service-method-name client-context)
   "Start a grpc call. Requires a pointer to a grpc CHANNEL object, and a SERVICE-METHOD-NAME
 string to direct the call to. TIMEOUT is the timeout for the call in seconds."
   (let* ((num-ops-for-sending-message +num-ops-for-starting-call+)
          (c-call (service-method-call channel service-method-name
-                                      *completion-queue* timeout))
+                                      *completion-queue*
+                                      (if client-context
+                                          (context-deadline client-context)
+                                          -1.0d0)))
          (ops (create-new-grpc-ops num-ops-for-sending-message))
          (tag (cffi:foreign-alloc :int))
          (ops-plist
-           (prepare-ops ops :send-metadata t
+           (prepare-ops ops :send-metadata (or (and client-context
+                                                    (context-metadata client-context))
+                                               t)
                             :client-recv-status t
                             :recv-metadata t)))
-    (call-start-batch c-call ops +num-ops-for-starting-call+ tag)
-    (make-call :c-call c-call
-               :c-tag tag
-               :c-ops ops
-               :ops-plist ops-plist)))
+    (let ((call-code (call-start-batch c-call ops +num-ops-for-starting-call+ tag)))
+      (unless (eql call-code :grpc-call-ok)
+        (grpc-ops-free ops +num-ops-for-starting-call+)
+        (cffi:foreign-free tag)
+        (error 'grpc-call-error :call-error call-code)))
+    (let ((call (make-call :c-call c-call
+                           :c-tag tag
+                           :c-ops ops
+                           :ops-plist ops-plist
+                           :context client-context)))
+      (setf (call-initial-metadata-sent-p call) t)
+      call)))
 
 (defun grpc-call (channel service-method-name bytes-to-send
-                  server-stream client-stream &optional (timeout -1.0d0))
+                  client-context server-stream client-stream)
   "Uses CHANNEL to call SERVICE-METHOD-NAME on the server with BYTES-TO-SEND
 as the arguement to the method and returns the response<list of byte arrays>
 from the server. If we are doing a client or bidirectional streaming call then
@@ -190,7 +202,7 @@ send in a single call to the server. In the case of a server or bidirectional
 call we return a list a list of byte vectors each being a response from the server,
 otherwise it's a single byte vector list containing a single response.
 TIMEOUT is the timeout for the call in seconds."
-  (let* ((call (start-grpc-call channel service-method-name timeout)))
+  (let* ((call (start-grpc-call channel service-method-name client-context)))
     (unwind-protect
          (progn
            (if client-stream
