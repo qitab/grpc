@@ -58,7 +58,8 @@
                                            metadata
                                            grpc::*completion-queue*
                                            grpc::*completion-queue* tag))
-         (method (get-call-method call-details)))
+         (method (get-call-method call-details))
+         (metadata-list (metadata-array-to-list metadata)))
     (assert (not (cffi:null-pointer-p c-call)))
     (metadata-destroy metadata)
     (call-details-destroy call-details)
@@ -68,7 +69,8 @@
                      :c-ops (cffi:null-pointer)
                      :method-name method
                      :ops-plist nil
-                     :is-server-call t)))
+                     :is-server-call t
+                     :context (make-context :metadata metadata-list))))
 
 (defun send-initial-metadata (call)
   "Send the GRPC_OP_SEND_INITIAL_METADATA from the server through a CALL"
@@ -85,6 +87,7 @@
       (grpc-ops-free ops num-ops)
       (error 'grpc-call-error :call-error call-code))
     (let ((cqp-p (completion-queue-pluck *completion-queue* tag)))
+      (when cqp-p (setf (call-initial-metadata-sent-p call) t))
       (grpc-ops-free ops num-ops)
       (cffi:foreign-free tag)
       cqp-p)))

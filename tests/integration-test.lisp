@@ -40,11 +40,15 @@ Parameters
         :utf-8))
      :action
      (lambda (message call)
-       (declare (ignore call))
-       (format t "~% response: ~A ~%" message)
-       (concatenate 'string
-                    message
-                    " Back"))))
+       (let* ((metadata (when (grpc::call-context call)
+                          (grpc::context-metadata (grpc::call-context call))))
+              (is-val (when metadata
+                        (second (assoc "is" metadata :test #'string=)))))
+         (format t "~% response: ~A ~%" message)
+         (concatenate 'string
+                      message
+                      " Back"
+                      (if is-val (format nil " ~A" is-val) ""))))))
    :dispatch-requests
    (lambda (method server)
      (bordeaux-threads:signal-semaphore sem)
@@ -54,7 +58,7 @@ Parameters
   ;; init
   (grpc:init-grpc)
   (unwind-protect
-       (let* ((expected-client-response "Hello World Back")
+       (let* ((expected-client-response "Hello World Back Lyra")
               (hostname "localhost")
               (method-name "xyz")
               (port-number 8000)
@@ -66,9 +70,13 @@ Parameters
          (grpc:with-insecure-channel
              (channel
               (concatenate 'string hostname ":" (write-to-string port-number)))
-           (let* ((message "Hello World")
+           (let* ((client-context
+                   (grpc::make-context :metadata '(("my" "name")
+                                                   ("is" "Lyra"))))
+                  (message "Hello World")
                   (response (grpc:grpc-call channel method-name
                                             (flexi-streams:string-to-octets message)
+                                            client-context
                                             nil nil))
                   (actual-client-response (flexi-streams:octets-to-string
                                            (car response))))
