@@ -21,6 +21,12 @@
 (defvar *completion-queue* nil "The global completion queue used to
 manage grpc calls.")
 
+(defun get-completion-queue ()
+  "Returns the global completion queue, initializing it if necessary."
+  (unless *completion-queue*
+    (init-grpc))
+  *completion-queue*)
+
 ;; gRPC Enums
 (cffi:defcenum grpc-security-level
   "Security levels of grpc transport security. It represents an inherent
@@ -332,6 +338,33 @@ before freeing ops."
   :void
   (metadata :pointer))
 
+(cffi:defcfun ("lisp_make_metadata_array" %make-metadata-array) :pointer
+              (count :size))
+
+(cffi:defcfun ("lisp_metadata_array_set" %metadata-array-set) :void
+              (array :pointer)
+              (index :size)
+              (key :string)
+              (value :string))
+
+(cffi:defcfun ("lisp_metadata_array_get_key" %metadata-array-get-key) :string
+              (array :pointer)
+              (index :size))
+
+(cffi:defcfun ("lisp_metadata_array_get_value" %metadata-array-get-value) :string
+              (array :pointer)
+              (index :size))
+
+(cffi:defcfun ("lisp_metadata_array_get_count" %metadata-array-get-count) :size
+              (array :pointer))
+
+(defun metadata-array-to-list (array-ptr)
+  "Converts a grpc_metadata_array* to a Lisp alist."
+  (let ((count (%metadata-array-get-count array-ptr)))
+    (loop for i from 0 to (1- count)
+          collect (list (%metadata-array-get-key array-ptr i)
+                        (%metadata-array-get-value array-ptr i)))))
+
 (cffi:defcfun ("free_grpc_slice" free-slice)
   :void
   (slice :pointer))
@@ -420,18 +453,34 @@ i of grpc_byte_buffer BUFFER."
 these operation guide the interaction between the client and server."
   (num-ops :int))
 
+(defun make-metadata (metadata)
+  "Sets OP[INDEX] to a Send Initial Metadata operation by adding metadata
+METADATA, the count of metadata COUNT, and the flag FLAG."
+  (let* ((arr-size (length metadata))
+         (arr (%make-metadata-array arr-size)))
+    (loop for i from 0
+          for (key value) in metadata
+          do (%metadata-array-set arr i key value))
+    arr))
+
 (defun make-send-metadata-op (op metadata
                               &key count flag
                                 index)
   "Sets OP[INDEX] to a Send Initial Metadata operation by adding metadata
 METADATA, the count of metadata COUNT, and the flag FLAG."
-  (cffi:foreign-funcall "lisp_grpc_make_send_metadata_op"
-                        :pointer op
-                        :int index
-                        :pointer metadata
-                        :int count
-                        :int (convert-metadata-flag-to-integer flag)
-                        :void))
+  (let ((metadata-ptr (cffi:null-pointer))
+        (metadata-count (or count 0)))
+    (when (and metadata (not (eq metadata t)))
+      (setf metadata-ptr (make-metadata metadata))
+      (setf metadata-count (length metadata)))
+
+    (cffi:foreign-funcall "lisp_grpc_make_send_metadata_op"
+                          :pointer op
+                          :int index
+                          :pointer metadata-ptr
+                          :int metadata-count
+                          :int (convert-metadata-flag-to-integer flag)
+                          :void)))
 
 (defun make-send-message-op (op message &key index)
   "Sets OP[INDEX] to a 'Send Message' operation that sends MESSAGE
@@ -511,7 +560,7 @@ want. Returns a plist containing keys being the op type and values being the ind
              (setf (getf ops-plist message-type) (incf cur-index))))
 
       (when send-metadata
-        (make-send-metadata-op ops (cffi:null-pointer)
+        (make-send-metadata-op ops (if (eq send-metadata t) nil send-metadata)
                                :count 0 :flag 0 :index (next-marker :send-metadata)))
       (when send-message
         (make-send-message-op ops send-message :index (next-marker :send-message)))
@@ -564,11 +613,9 @@ Users should not call this directly but rather use with-grpc
 macros and only call once."
   (cffi:foreign-funcall "grpc_init")
   (unless *completion-queue*
-    (setf *completion-queue*
-          (cffi:foreign-funcall "grpc_completion_queue_create_for_pluck"
-                                :pointer (cffi:null-pointer)
-                                :pointer (cffi:null-pointer)
-                                :pointer))))
+    (setf *completion-queue* (c-grpc-completion-queue-create-for-pluck))
+    (unless *completion-queue*
+      (error "Failed to create gRPC completion queue"))))
 
 (defun shutdown-grpc ()
   "Shut down gRPC.
@@ -583,6 +630,10 @@ macros and only call once."
   (cffi:foreign-funcall "grpc_shutdown"))
 
 ;; Shared structures
+
+(defstruct context
+  (deadline -1.0d0 :type number)
+  (metadata nil :type list))
 
 (defstruct call
   (c-call nil :type cffi:foreign-pointer)
@@ -599,10 +650,12 @@ macros and only call once."
   (client-stream-p nil :type boolean)
   (server-stream-p nil :type boolean)
   (initial-message-sent-p nil :type boolean)
+  (initial-metadata-sent-p nil :type boolean)
   (server-send-status-p nil :type boolean)
   (is-server-call nil :type boolean)
   (status-plucked-p nil :type boolean)
-  (status-checked-p nil :type boolean))
+  (status-checked-p nil :type boolean)
+  (context nil :type (or null context)))
 
 (defmacro with-client-stream ((call-var start-form) &body body)
   "Binds CALL-VAR to START-FORM, executes BODY, and ensures the call is closed and cleaned up."
@@ -657,7 +710,13 @@ macros and only call once."
          (ops (create-new-grpc-ops num-ops))
          (grpc-slice
           (convert-bytes-to-grpc-byte-buffer bytes-to-send))
-         (ops-plist (prepare-ops ops :send-message grpc-slice))
+         (context (call-context call))
+         (ops-plist (prepare-ops
+                     ops
+                     :send-message grpc-slice
+                     :send-metadata (and context
+                                         (not (call-initial-metadata-sent-p call))
+                                         (or (context-metadata context) t))))
          (call-code (call-start-batch c-call ops num-ops tag)))
     (declare (ignore ops-plist))
     (unless (eql call-code :grpc-call-ok)
@@ -665,6 +724,8 @@ macros and only call once."
       (grpc-ops-free ops num-ops)
       (error 'grpc-call-error :call-error call-code))
     (let ((cqp-p (completion-queue-pluck *completion-queue* tag)))
+      (when (and cqp-p (not (call-initial-metadata-sent-p call)))
+        (setf (call-initial-metadata-sent-p call) t))
       (grpc-ops-free ops num-ops)
       (cffi:foreign-free tag)
       cqp-p)))

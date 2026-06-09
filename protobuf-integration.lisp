@@ -36,7 +36,7 @@ given a cl-protobufs method-descriptor."
                  (position #\. (proto:proto-qualified-name method) :from-end t))))
     (concatenate 'string "/" package-name "." service-name "/" rpc-name)))
 
-(defgeneric start-call (channel method request response &key callback timeout)
+(defgeneric start-call (channel method request response &key callback timeout metadata)
   (:documentation
    "Starts a gRPC call for METHOD.
 
@@ -46,9 +46,10 @@ Parameters:
     REQUEST is the proto message to send.
     RESPONSE is not supported.
     CALLBACK is not currently supported.
-    TIMEOUT is the timeout for the call in seconds."))
+    TIMEOUT is the timeout for the call in seconds.
+    METADATA is the metadata to send with the call."))
 
-(defmethod start-call (channel method request response &key callback (timeout -1.0d0))
+(defmethod start-call (channel method request response &key callback (timeout -1) metadata)
   (assert (not (or callback response)) nil "CALLBACK and RESPONSE args not supported.")
   (let* ((qualified-method-name (get-qualified-method-name method))
          (output-type (proto:proto-output-type method))
@@ -57,8 +58,10 @@ Parameters:
          (bytes (if client-stream
                     (mapcar #'proto:serialize-to-bytes request)
                     (proto:serialize-to-bytes request)))
+         (context (make-context :metadata metadata :deadline (or timeout -1)))
          (response (grpc-call channel qualified-method-name bytes
-                              server-stream client-stream timeout)))
+                              context
+                              server-stream client-stream)))
     (flet ((deserialize-result (bytes)
              (proto:deserialize-from-bytes
               output-type
@@ -168,15 +171,17 @@ Parameters:
              while ,message-var
              do (progn ,@body)))))
 
-(defgeneric handle-client-stream-call (type &key channel method request call timeout)
+(defgeneric handle-client-stream-call (type &key channel method request call timeout metadata)
   (:documentation
    "Dispatch for different stream call types."))
 
 (defmethod handle-client-stream-call ((type (eql :start))
-                                      &key channel method request call (timeout -1.0d0))
+                                      &key channel method request call (timeout -1)
+                                      metadata)
   (declare (ignore type request call))
   (let* ((qualified-method-name (get-qualified-method-name method))
-         (call (start-grpc-call channel qualified-method-name timeout)))
+         (context (make-context :metadata metadata :deadline timeout))
+         (call (start-grpc-call channel qualified-method-name context)))
     (make-client-proto-call
      :c-call (call-c-call call)
      :c-tag (call-c-tag call)
@@ -189,47 +194,47 @@ Parameters:
      :is-server-call nil)))
 
 (defmethod handle-client-stream-call ((type (eql :send))
-                                      &key channel method request call timeout)
-  (declare (ignore type channel method timeout))
+                                      &key channel method request call timeout metadata)
+  (declare (ignore type channel method timeout metadata))
   (stream-send call request))
 
 (defmethod handle-client-stream-call ((type (eql :receive))
-                                      &key channel method request call timeout)
-  (declare (ignore type channel method request timeout))
+                                      &key channel method request call timeout metadata)
+  (declare (ignore type channel method request timeout metadata))
   (stream-receive call))
 
 (defmethod handle-client-stream-call ((type (eql :close))
-                                      &key channel method request call timeout)
-  (declare (ignore type channel method request timeout))
+                                      &key channel method request call timeout metadata)
+  (declare (ignore type channel method request timeout metadata))
   (stream-close call))
 
 (defmethod handle-client-stream-call ((type (eql :cleanup))
-                                      &key channel method request call timeout)
-  (declare (ignore type channel method request timeout))
+                                      &key channel method request call timeout metadata)
+  (declare (ignore type channel method request timeout metadata))
   (stream-cleanup call))
 
-(defgeneric handle-server-stream-call (type &key channel method request call timeout)
+(defgeneric handle-server-stream-call (type &key channel method request call timeout metadata)
   (:documentation
    "Dispatch for different server stream call types."))
 
 (defmethod handle-server-stream-call ((type (eql :receive))
-                                      &key channel method request call timeout)
-  (declare (ignore type channel method request timeout))
+                                      &key channel method request call timeout metadata)
+  (declare (ignore type channel method request timeout metadata))
   (stream-receive call))
 
 (defmethod handle-server-stream-call ((type (eql :send))
-                                      &key channel method request call timeout)
-  (declare (ignore type channel method timeout))
+                                      &key channel method request call timeout metadata)
+  (declare (ignore type channel method timeout metadata))
   (stream-send call request))
 
 (defmethod handle-server-stream-call ((type (eql :receive-close))
-                                      &key channel method request call timeout)
-  (declare (ignore type channel method request timeout))
+                                      &key channel method request call timeout metadata)
+  (declare (ignore type channel method request timeout metadata))
   (stream-close call))
 
 (defmethod handle-server-stream-call ((type (eql :send-status))
-                                      &key channel method request call timeout)
-  (declare (ignore type channel method request timeout))
+                                      &key channel method request call timeout metadata )
+  (declare (ignore type channel method request timeout metadata))
   (setf (call-server-send-status-p call) t)
   (server-send-status call))
 
@@ -274,7 +279,9 @@ Parameters
                               :client-stream-p istream-p
                               :input-type (proto:proto-input-type method)
                               :output-type (proto:proto-output-type method)
-                              :is-server-call (call-is-server-call call))))
+                              :is-server-call (call-is-server-call call)
+                              :context (call-context call)
+                              :initial-metadata-sent-p (call-initial-metadata-sent-p call))))
                   (funcall (proto:proto-server-stub method) pcall)))
               (lambda (message call)
                 (let ((pcall (make-server-proto-call
@@ -286,7 +293,9 @@ Parameters
                               :client-stream-p istream-p
                               :input-type (proto:proto-input-type method)
                               :output-type (proto:proto-output-type method)
-                              :is-server-call (call-is-server-call call))))
+                              :is-server-call (call-is-server-call call)
+                              :context (call-context call)
+                              :initial-metadata-sent-p (call-initial-metadata-sent-p call))))
                   (funcall (proto:proto-server-stub method) message pcall))))
           :input-streaming-p istream-p
           :output-streaming-p ostream-p)

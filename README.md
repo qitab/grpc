@@ -68,12 +68,18 @@ This expects the channel that was previously created, the service name and metho
 called, and the request message serialized to bytes. The `grpc-call` method also
 takes `server-stream` and `client-stream` arguments which state whether the message
 should use server or client side streaming as discussed in
-[Types of Services](#types-of-services)
+[Types of Services](#types-of-services).
+It also accepts a `client-context` argument, which can be `nil` or a context
+object created with `(grpc::make-context :metadata metadata :deadline deadline)`.
+Metadata must be passed in as an alist of strings.
+Example: `'(("key1" "value1") ("key2" "value2"))`.
 
 ```lisp
 (grpc:grpc-call channel
                 "/serviceName/ServiceMethod"
-                serialized-message server-stream client-stream)
+                serialized-message
+                client-context
+                server-stream client-stream)
 ;; Returns the response a list of byte vectors for each response
 ```
 
@@ -86,7 +92,7 @@ There are two different types of `mono-directional-streaming` RPC's:
 1. Server Side Streaming.
 2. Client Side Streaming.
 
-See https://grpc.io/docs/what-is-grpc/core-concepts/#rpc-life-cycle  for details.
+See https://grpc.io/docs/what-is-grpc/core-concepts/#rpc-life-cycle for details.
 
 #### Unary RPC
 
@@ -159,8 +165,8 @@ We create two packages:
 * `cl-protobufs.testing`
 * `cl-protobufs.testing-rpc`
 
-The package `cl-protobufs.testing` contains the `hello-request` and `hello-reply`  protocol
-buffer messages.
+The package `cl-protobufs.testing` contains the `hello-request` and `hello-reply`
+protocol buffer messages.
 
 #### One Shot Client Calls.
 
@@ -171,7 +177,8 @@ A message can be sent to a server implementing the `Greeter` service with:
   (grpc:with-insecure-channel
       (channel (concatenate 'string hostname ":" (write-to-string port-number)))
     (let* ((request (cl-protobufs.testing:make-hello-request :name "Neo"))
-           (response (cl-protobufs.testing-rpc:call-say-hello channel message)))
+           (response (cl-protobufs.testing-rpc:call-say-hello channel message
+                                                               :metadata '(("foo" "bar")))))
       ...))
 ```
 
@@ -179,6 +186,8 @@ If the service implements client-side streaming `message` should be a list
 of `hello-request` messages to be sent to the server. If the service implements
 server-side streaming then response will contain a list of `hello-reply`
 messages.
+Metadata can be passed to client calls with the `:metadata` keyword argument. It
+must be an alist of strings, e.g., `'(("key1" "value1"))`.
 
 #### Asynchronous Client Streaming
 
@@ -195,7 +204,7 @@ functions.
 We will use `SayHelloBidirectionalStream` service as an example below.
 
 ```lisp
-(testing-rpc:say-hello-bidirectional-stream/start channel)
+(testing-rpc:say-hello-bidirectional-stream/start channel :metadata '(("foo" "bar")))
 ```
 
 Takes in a `channel` object and returns a `call` object that the user must keep
