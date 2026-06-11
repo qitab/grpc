@@ -1,0 +1,122 @@
+# @file ci.yml
+---
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        lisp: [ sbcl, ccl ]
+
+    steps:
+      - name: Download ccl
+        if: matrix.lisp == 'ccl'
+        run: |
+          curl -o ccl.tar.gz --location 'https://github.com/Clozure/ccl/releases/download/v1.12/ccl-1.12-linuxx86.tar.gz'
+          tar -xzf ccl.tar.gz
+
+      - name: Download sbcl
+        if: matrix.lisp == 'sbcl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sbcl
+
+      - name: Cache Quicklisp
+        id: cache-quicklisp
+        uses: actions/cache@v4
+        with:
+          path: quicklisp
+          key: ${{ runner.os }}-quicklisp-${{ matrix.lisp }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-quicklisp-${{ matrix.lisp }}-
+
+      - name: Download quicklisp
+        if: steps.cache-quicklisp.outputs.cache-hit != 'true'
+        run: curl -o quicklisp.lisp 'https://beta.quicklisp.org/quicklisp.lisp'
+
+      - name: Install quicklisp
+        if: steps.cache-quicklisp.outputs.cache-hit != 'true'
+        run: |
+          if [ "${{ matrix.lisp }}" = "ccl" ]; then
+            ./ccl/lx86cl64 --load quicklisp.lisp --eval "(quicklisp-quickstart:install :path \"$GITHUB_WORKSPACE/quicklisp/\") (quit)"
+            ./ccl/lx86cl64 --load "$GITHUB_WORKSPACE/quicklisp/setup.lisp" --eval '(ql-util:without-prompting (ql:add-to-init-file)) (quit)'
+          else
+            sbcl --noinform --non-interactive --load quicklisp.lisp --eval "(quicklisp-quickstart:install :path \"$GITHUB_WORKSPACE/quicklisp/\")"
+            sbcl --noinform --non-interactive --load "$GITHUB_WORKSPACE/quicklisp/setup.lisp" --eval '(ql-util:without-prompting (ql:add-to-init-file))'
+          fi
+
+      - name: Download repo
+        uses: actions/checkout@v4
+        with:
+          path: quicklisp/local-projects/grpc
+
+      - name: Install cmake & required tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential autoconf libtool pkg-config
+
+      - name: Cache gRPC C++ build
+        id: cache-grpc
+        uses: actions/cache@v4
+        with:
+          path: grpc
+          key: ${{ runner.os }}-grpc-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-grpc-
+
+      - name: Clone gRPC Github repo
+        if: steps.cache-grpc.outputs.cache-hit != 'true'
+        run: git clone --recurse-submodules --depth 1 --shallow-submodules https://github.com/grpc/grpc
+
+      - name: Build and install gRPC c++
+        run: |
+          cd grpc &&
+          mkdir -p cmake/build &&
+          pushd cmake/build &&
+          cmake -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=/usr/local/ ../.. &&
+          make -j$(nproc) &&
+          sudo make install -j$(nproc) &&
+          sudo ldconfig &&
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH &&
+          cd $GITHUB_WORKSPACE/quicklisp/local-projects/grpc &&
+          sudo make -j$(nproc) &&
+          popd
+
+      - name: Cache cl-protobufs build
+        id: cache-cl-protobufs
+        uses: actions/cache@v4
+        with:
+          path: quicklisp/local-projects/cl-protobufs
+          key: ${{ runner.os }}-cl-protobufs-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-cl-protobufs-
+
+      - name: Install protoc plug-in
+        run: |
+          cd $GITHUB_WORKSPACE/quicklisp/local-projects
+          if [ ! -d "cl-protobufs" ]; then
+            git clone https://github.com/qitab/cl-protobufs
+          fi
+          cd cl-protobufs/protoc
+          cmake . -DCMAKE_CXX_STANDARD=17
+          cmake --build . --target install --parallel $(nproc)
+
+      - name: Start gRPC
+        run: |
+          export PATH="$PATH:$GITHUB_WORKSPACE/quicklisp/local-projects/cl-protobufs/protoc/"
+          if [ "${{ matrix.lisp }}" = "ccl" ]; then
+            ./ccl/lx86cl64 --eval '(ql:quickload :grpc)' --eval '(ql:quickload :clunit2)' --eval '(ql:quickload :flexi-streams)' --eval '(ql:quickload :bordeaux-threads)' --eval '(setf clunit:*clunit-report-format* :tap)' --eval '(asdf:test-system :grpc)' >> report
+          else
+            sbcl --noinform --non-interactive --eval '(ql:quickload :grpc)' --eval '(ql:quickload :clunit2)' --eval '(ql:quickload :flexi-streams)' --eval '(ql:quickload :bordeaux-threads)' --eval '(setf clunit:*clunit-report-format* :tap)' --eval '(asdf:test-system :grpc)' >> report
+          fi
+          test -f report
+          cat report
+          ! grep -q "not ok" report
+          grep -q "ok" report

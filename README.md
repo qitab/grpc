@@ -1,7 +1,6 @@
 # gRPC Library in Common Lisp
 
-[![SBCL-Tests](https://github.com/qitab/grpc/actions/workflows/SBCL-test.yml/badge.svg)](https://github.com/qitab/grpc/actions/workflows/SBCL-test.yml)
-[![CCL-Tests](https://github.com/qitab/grpc/actions/workflows/CCL-test.yml/badge.svg)](https://github.com/qitab/grpc/actions/workflows/CCL-test.yml)
+[![CI](https://github.com/qitab/grpc/actions/workflows/ci.yml/badge.svg)](https://github.com/qitab/grpc/actions/workflows/ci.yml)
 
 
 
