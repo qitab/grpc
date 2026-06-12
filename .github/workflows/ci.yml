@@ -10,7 +10,8 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: 'test (${{ matrix.lisp }})'
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         lisp: [ sbcl, ccl ]
@@ -30,7 +31,7 @@ jobs:
 
       - name: Cache Quicklisp
         id: cache-quicklisp
-        uses: actions/cache@v4
+        uses: actions/cache@a7833574556fa59680c1b7cb190c1735db73ebf0 # v5.0.0
         with:
           path: quicklisp
           key: ${{ runner.os }}-quicklisp-${{ matrix.lisp }}-${{ github.sha }}
@@ -38,22 +39,28 @@ jobs:
             ${{ runner.os }}-quicklisp-${{ matrix.lisp }}-
 
       - name: Download quicklisp
-        if: steps.cache-quicklisp.outputs.cache-hit != 'true'
-        run: curl -o quicklisp.lisp 'https://beta.quicklisp.org/quicklisp.lisp'
+        run: |
+          if [ ! -f "$GITHUB_WORKSPACE/quicklisp/setup.lisp" ]; then
+            curl -o quicklisp.lisp 'https://beta.quicklisp.org/quicklisp.lisp'
+            echo "4a7a5c2aebe0716417047854267397e24a44d0cce096127411e9ce9ccfeb2c17  quicklisp.lisp" | sha256sum -c
+          fi
 
       - name: Install quicklisp
-        if: steps.cache-quicklisp.outputs.cache-hit != 'true'
         run: |
-          if [ "${{ matrix.lisp }}" = "ccl" ]; then
-            ./ccl/lx86cl64 --load quicklisp.lisp --eval "(quicklisp-quickstart:install :path \"$GITHUB_WORKSPACE/quicklisp/\") (quit)"
-            ./ccl/lx86cl64 --load "$GITHUB_WORKSPACE/quicklisp/setup.lisp" --eval '(ql-util:without-prompting (ql:add-to-init-file)) (quit)'
+          if [ -f "$GITHUB_WORKSPACE/quicklisp/setup.lisp" ]; then
+            echo "Quicklisp already installed."
           else
-            sbcl --noinform --non-interactive --load quicklisp.lisp --eval "(quicklisp-quickstart:install :path \"$GITHUB_WORKSPACE/quicklisp/\")"
-            sbcl --noinform --non-interactive --load "$GITHUB_WORKSPACE/quicklisp/setup.lisp" --eval '(ql-util:without-prompting (ql:add-to-init-file))'
+            if [ "${{ matrix.lisp }}" = "ccl" ]; then
+              ./ccl/lx86cl64 --load quicklisp.lisp --eval "(quicklisp-quickstart:install :path \"$GITHUB_WORKSPACE/quicklisp/\") (quit)"
+              ./ccl/lx86cl64 --load "$GITHUB_WORKSPACE/quicklisp/setup.lisp" --eval '(ql-util:without-prompting (ql:add-to-init-file)) (quit)'
+            else
+              sbcl --noinform --non-interactive --load quicklisp.lisp --eval "(quicklisp-quickstart:install :path \"$GITHUB_WORKSPACE/quicklisp/\")"
+              sbcl --noinform --non-interactive --load "$GITHUB_WORKSPACE/quicklisp/setup.lisp" --eval '(ql-util:without-prompting (ql:add-to-init-file))'
+            fi
           fi
 
       - name: Download repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           path: quicklisp/local-projects/grpc
 
@@ -64,7 +71,7 @@ jobs:
 
       - name: Cache gRPC C++ build
         id: cache-grpc
-        uses: actions/cache@v4
+        uses: actions/cache@a7833574556fa59680c1b7cb190c1735db73ebf0 # v5.0.0
         with:
           path: grpc
           key: ${{ runner.os }}-grpc-${{ github.sha }}
@@ -72,8 +79,13 @@ jobs:
             ${{ runner.os }}-grpc-
 
       - name: Clone gRPC Github repo
-        if: steps.cache-grpc.outputs.cache-hit != 'true'
-        run: git clone --recurse-submodules --depth 1 --shallow-submodules https://github.com/grpc/grpc
+        run: |
+          if [ ! -d "grpc" ]; then
+            git clone --recurse-submodules --depth 1 --shallow-submodules --branch v1.81.1 https://github.com/grpc/grpc
+            # TODO: To pin to a specific commit hash instead of a tag, use:
+            # git clone --recurse-submodules --shallow-submodules --branch v1.81.1 https://github.com/grpc/grpc
+            # cd grpc && git checkout <commit-hash>
+          fi
 
       - name: Build and install gRPC c++
         run: |
@@ -91,7 +103,7 @@ jobs:
 
       - name: Cache cl-protobufs build
         id: cache-cl-protobufs
-        uses: actions/cache@v4
+        uses: actions/cache@a7833574556fa59680c1b7cb190c1735db73ebf0 # v5.0.0
         with:
           path: quicklisp/local-projects/cl-protobufs
           key: ${{ runner.os }}-cl-protobufs-${{ github.sha }}
@@ -103,18 +115,21 @@ jobs:
           cd $GITHUB_WORKSPACE/quicklisp/local-projects
           if [ ! -d "cl-protobufs" ]; then
             git clone https://github.com/qitab/cl-protobufs
+            # TODO: To pin to a specific commit hash, use:
+            # git clone https://github.com/qitab/cl-protobufs
+            # cd cl-protobufs && git checkout <commit-hash> && cd ..
           fi
           cd cl-protobufs/protoc
           cmake . -DCMAKE_CXX_STANDARD=17
           cmake --build . --target install --parallel $(nproc)
 
-      - name: Start gRPC
+      - name: Load and run tests
         run: |
           export PATH="$PATH:$GITHUB_WORKSPACE/quicklisp/local-projects/cl-protobufs/protoc/"
           if [ "${{ matrix.lisp }}" = "ccl" ]; then
-            ./ccl/lx86cl64 --eval '(ql:quickload :grpc)' --eval '(ql:quickload :clunit2)' --eval '(ql:quickload :flexi-streams)' --eval '(ql:quickload :bordeaux-threads)' --eval '(setf clunit:*clunit-report-format* :tap)' --eval '(asdf:test-system :grpc)' >> report
+            ./ccl/lx86cl64 --load "$GITHUB_WORKSPACE/quicklisp/setup.lisp" --eval '(ql:quickload :grpc)' --eval '(ql:quickload :clunit2)' --eval '(ql:quickload :flexi-streams)' --eval '(ql:quickload :bordeaux-threads)' --eval '(setf clunit:*clunit-report-format* :tap)' --eval '(asdf:test-system :grpc)' >> report
           else
-            sbcl --noinform --non-interactive --eval '(ql:quickload :grpc)' --eval '(ql:quickload :clunit2)' --eval '(ql:quickload :flexi-streams)' --eval '(ql:quickload :bordeaux-threads)' --eval '(setf clunit:*clunit-report-format* :tap)' --eval '(asdf:test-system :grpc)' >> report
+            sbcl --noinform --non-interactive --load "$GITHUB_WORKSPACE/quicklisp/setup.lisp" --eval '(ql:quickload :grpc)' --eval '(ql:quickload :clunit2)' --eval '(ql:quickload :flexi-streams)' --eval '(ql:quickload :bordeaux-threads)' --eval '(setf clunit:*clunit-report-format* :tap)' --eval '(asdf:test-system :grpc)' >> report
           fi
           test -f report
           cat report
