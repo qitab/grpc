@@ -10,7 +10,8 @@
         #:cl-protobufs
         #:grpc)
   (:import-from #:grpc.test #:with-mocked-functions)
-  (:local-nicknames (#:test-proto #:cl-protobufs.lisp.grpc.unit-testing))
+  (:local-nicknames (#:test-proto #:cl-protobufs.lisp.grpc.unit-testing)
+                    (#:proto-impl #:cl-protobufs.implementation))
   (:export :run))
 
 (in-package #:grpc.test.protobuf-integration)
@@ -26,10 +27,10 @@ Parameters
 
 (deftest test-get-qualified-method-name (protobuf-integration-suite)
   "Validates the qualified name can be parsed from the provided method descriptor."
-  (let* ((method-descriptor (make-instance 'cl-protobufs:method-descriptor
-                                           :service-name "Greeter"
-                                           :name "SayHello"
-                                           :qualified-name "lisp.grpc.test.SayHello"))
+  (let* ((method-descriptor (proto-impl:make-method-descriptor
+                             :service-name "Greeter"
+                             :name "SayHello"
+                             :qualified-name "lisp.grpc.test.SayHello"))
          (expected-qualified-method-name "/lisp.grpc.test.Greeter/SayHello")
          (qualified-method-name (grpc::get-qualified-method-name method-descriptor)))
     (assert-true (string= expected-qualified-method-name qualified-method-name))))
@@ -39,13 +40,13 @@ Parameters
 the server and a single response is returned."
   (let ((request (test-proto:make-hello-request :name "Neo"))
         (expected-response (test-proto:make-hello-reply :message "Hello, Neo"))
-        (method (make-instance 'cl-protobufs:method-descriptor
-                               :service-name "Greeter"
-                               :name "SayHello"
-                               :qualified-name "lisp.grpc.test.SayHello"
-                               :output-type 'test-proto:hello-reply
-                               :output-streaming nil
-                               :input-streaming nil))
+        (method (proto-impl:make-method-descriptor
+                 :service-name "Greeter"
+                 :name "SayHello"
+                 :qualified-name "lisp.grpc.test.SayHello"
+                 :output-type 'test-proto:hello-reply
+                 :output-streaming nil
+                 :input-streaming nil))
         (qualified-method-name "/lisp.grpc.test.Greeter/SayHello"))
     (with-mocked-functions ((grpc-call
                              (channel
@@ -73,13 +74,13 @@ the server and a stream of responses are returned."
         (expected-response (list (test-proto:make-hello-reply :message "Hello, Neo 0")
                                  (test-proto:make-hello-reply :message "Hello, Neo 1")
                                  (test-proto:make-hello-reply :message "Hello, Neo 2")))
-        (method (make-instance 'cl-protobufs:method-descriptor
-                               :service-name "Greeter"
-                               :name "SayHelloServerStream"
-                               :qualified-name "lisp.grpc.test.SayHelloServerStream"
-                               :output-type 'test-proto:hello-reply
-                               :output-streaming t
-                               :input-streaming nil))
+        (method (proto-impl:make-method-descriptor
+                 :service-name "Greeter"
+                 :name "SayHelloServerStream"
+                 :qualified-name "lisp.grpc.test.SayHelloServerStream"
+                 :output-type 'test-proto:hello-reply
+                 :output-streaming t
+                 :input-streaming nil))
         (qualified-method-name "/lisp.grpc.test.Greeter/SayHelloServerStream"))
     (with-mocked-functions ((grpc-call
                              (channel
@@ -108,13 +109,13 @@ sent to the server and a single response is returned."
                        (test-proto:make-hello-request :name "Morpheus")
                        (test-proto:make-hello-request :name "Trinity")))
         (expected-response (test-proto:make-hello-reply :message "Hello, Neo Morpheus Trinity"))
-        (method (make-instance 'cl-protobufs:method-descriptor
-                               :service-name "Greeter"
-                               :name "SayHelloClientStream"
-                               :qualified-name "lisp.grpc.test.SayHelloClientStream"
-                               :output-type 'test-proto:hello-reply
-                               :output-streaming nil
-                               :input-streaming t))
+        (method (proto-impl:make-method-descriptor
+                 :service-name "Greeter"
+                 :name "SayHelloClientStream"
+                 :qualified-name "lisp.grpc.test.SayHelloClientStream"
+                 :output-type 'test-proto:hello-reply
+                 :output-streaming nil
+                 :input-streaming t))
         (qualified-method-name "/lisp.grpc.test.Greeter/SayHelloClientStream"))
     (with-mocked-functions ((grpc-call
                              (channel
@@ -146,13 +147,13 @@ sent to the server and a stream of responses are returned."
                                  (test-proto:make-hello-reply :message "Hello, Neo 1")
                                  (test-proto:make-hello-reply :message "Hello, Trinity 0")
                                  (test-proto:make-hello-reply :message "Hello, Morpheus 0")))
-        (method (make-instance 'cl-protobufs:method-descriptor
-                               :service-name "Greeter"
-                               :name "SayHelloBidirectionalStream"
-                               :qualified-name "lisp.grpc.test.SayHelloBidirectionalSream"
-                               :output-type 'test-proto:hello-reply
-                               :output-streaming t
-                               :input-streaming t))
+        (method (proto-impl:make-method-descriptor
+                 :service-name "Greeter"
+                 :name "SayHelloBidirectionalStream"
+                 :qualified-name "lisp.grpc.test.SayHelloBidirectionalSream"
+                 :output-type 'test-proto:hello-reply
+                 :output-streaming t
+                 :input-streaming t))
         (qualified-method-name "/lisp.grpc.test.Greeter/SayHelloBidirectionalStream"))
     (with-mocked-functions ((grpc-call
                              (channel
