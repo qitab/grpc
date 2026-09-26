@@ -107,3 +107,20 @@ returns nil when a call code of grpc-call-ok, nil for completion-queue-pluck
                              (declare (ignore op index))
                              (cffi:null-pointer)))
       (assert-false (grpc::receive-message call-object)))))
+
+(deftest test-slice-and-byte-buffer-with-null-bytes (server-suite)
+  "Validate that convert-grpc-slice-to-bytes and get-bytes-from-grpc-byte-buffer
+preserve embedded and leading null (0x00) bytes without truncating."
+  (dolist (expected (list (make-array 0 :element-type '(unsigned-byte 8))
+                          (make-array 4 :element-type '(unsigned-byte 8)
+                                        :initial-contents '(10 0 16 3))
+                          (make-array 5 :element-type '(unsigned-byte 8)
+                                        :initial-contents '(0 1 0 2 0))))
+    (let ((slice (grpc::convert-bytes-to-grpc-slice expected)))
+      (unwind-protect
+           (assert-equalp expected (grpc::convert-grpc-slice-to-bytes slice))
+        (grpc::free-slice slice)))
+    (let ((byte-buffer (grpc::convert-bytes-to-grpc-byte-buffer expected)))
+      (unwind-protect
+           (assert-equalp expected (grpc::get-bytes-from-grpc-byte-buffer byte-buffer 0))
+        (grpc::grpc-byte-buffer-destroy byte-buffer)))))

@@ -362,9 +362,12 @@ grpc_byte_buffer* convert_bytes_to_grpc_byte_buffer(char* buf, size_t len) {
   return ret;
 }
 
-char* convert_grpc_byte_buffer_to_bytes(grpc_byte_buffer* buf, int index) {
-  grpc_slice slice = buf->data.raw.slice_buffer.slices[index];
-  return grpc_slice_to_c_string(slice);
+uint8_t* lisp_grpc_slice_start_ptr(grpc_slice* slice) {
+  return GRPC_SLICE_START_PTR(*slice);
+}
+
+size_t lisp_grpc_slice_length(grpc_slice* slice) {
+  return GRPC_SLICE_LENGTH(*slice);
 }
 
 grpc_slice* convert_bytes_to_grpc_slice(char* buf, size_t len) {

@@ -322,6 +322,16 @@ before freeing ops."
   (buf :pointer)
   (index :int))
 
+(cffi:defcfun ("lisp_grpc_slice_start_ptr"
+               grpc-slice-start-ptr )
+  :pointer
+  (slice :pointer))
+
+(cffi:defcfun ("lisp_grpc_slice_length"
+               grpc-slice-length )
+  :size
+  (slice :pointer))
+
 (cffi:defcfun ("grpc_byte_buffer_slice_buffer_count"
                get-grpc-byte-buffer-slice-buffer-count ) :int
   (op :pointer))
@@ -380,22 +390,20 @@ before freeing ops."
                             :pointer c-bytes
                             :void))))
 
+(defun convert-grpc-slice-to-bytes (slice)
+  "Takes SLICE and returns its content as a vector of bytes."
+  (let ((length (grpc-slice-length slice)))
+    (if (zerop length)
+        (make-array 0 :element-type '(unsigned-byte 8))
+        (cffi:foreign-array-to-lisp (grpc-slice-start-ptr slice)
+                                    (list :array :uint8 length)
+                                    :element-type '(unsigned-byte 8)))))
+
 (defun get-bytes-from-grpc-byte-buffer (buffer index)
   "Get a lisp-vector of bytes from the grpc_slice at INDEX
 i of grpc_byte_buffer BUFFER."
-  (let ((c-bytes
-         (cffi:foreign-funcall "convert_grpc_byte_buffer_to_bytes"
-                               :pointer buffer
-                               :int index
-                               :pointer)))
-    (prog1 (cffi:foreign-array-to-lisp c-bytes
-                                       (list :array :uint8
-                                             (cffi:foreign-funcall
-                                              "strlen"
-                                              :pointer c-bytes :int)))
-      (cffi:foreign-funcall "free"
-                            :pointer c-bytes
-                            :void))))
+  (convert-grpc-slice-to-bytes
+   (get-grpc-slice-from-grpc-byte-buffer buffer index)))
 
 
 (defun convert-bytes-to-grpc-byte-buffer (bytes)
@@ -592,18 +600,6 @@ grpc_slice*."
                           :pointer array
                           :size (length bytes)
                           :pointer)))
-
-(defun convert-grpc-slice-to-bytes (slice)
-  "Takes SLICE and returns its content as a vector of bytes."
-  (let* ((slice-string-pointer
-          (cffi:foreign-funcall
-           "convert_grpc_slice_to_string" :pointer slice
-                                          :pointer)))
-    (cffi:foreign-array-to-lisp slice-string-pointer
-                                (list :array :uint8
-                                      (cffi:foreign-funcall
-                                           "strlen"
-                                           :pointer slice-string-pointer :int)))))
 
 ;; Init/Shutdown Functions
 

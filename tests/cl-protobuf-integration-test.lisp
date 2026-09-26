@@ -268,3 +268,28 @@ Parameters
          (bordeaux-threads:join-thread thread))
     (grpc:shutdown-grpc)))
 
+(deftest test-client-server-integration-null-bytes-success (proto-server-suite)
+  (unless *google-inited*
+    ;; init
+    (setf *google-inited* t))
+  (grpc:init-grpc)
+  (unwind-protect
+       (let* ((null-name (format nil "Hello~CWorld" #\Null))
+              (expected-client-response (concatenate 'string null-name " Back"))
+              (hostname "localhost")
+              (port-number 8008)
+              (sem (bordeaux-threads:make-semaphore))
+              (thread (bordeaux-threads:make-thread
+                       (lambda () (run-server sem hostname port-number)))))
+
+         (bordeaux-threads:wait-on-semaphore sem)
+
+         (grpc:with-insecure-channel
+             (channel (concatenate 'string hostname ":"
+                                   (write-to-string port-number)))
+           (let* ((message (ut:make-hello-request :name null-name))
+                  (response (ut-rpc:call-say-hello channel message)))
+             (assert-true (string= (ut:hello-reply.message response)
+                                   expected-client-response))))
+         (bordeaux-threads:join-thread thread))
+    (grpc:shutdown-grpc)))
