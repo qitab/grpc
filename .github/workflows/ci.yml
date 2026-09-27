@@ -7,11 +7,15 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
+permissions:
+  contents: read
 
 jobs:
   test:
     name: 'test (${{ matrix.lisp }})'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     strategy:
       matrix:
         lisp: [ sbcl, ccl ]
@@ -63,6 +67,10 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           path: quicklisp/local-projects/grpc
+          persist-credentials: false
+
+      - name: Add cl-protobufs/protoc to path
+        run: echo "$GITHUB_WORKSPACE/quicklisp/local-projects/cl-protobufs/protoc" >> $GITHUB_PATH
 
       - name: Install cmake & required tooling
         run: |
@@ -101,14 +109,49 @@ jobs:
           sudo make -j$(nproc) &&
           popd
 
+      - name: Cache C++ dependencies
+        id: cache-cpp
+        uses: actions/cache@a7833574556fa59680c1b7cb190c1735db73ebf0 # v5.0.0
+        with:
+          path: |
+            abseil-cpp
+            protobuf
+          key: ${{ runner.os }}-cpp-deps-v36-absl20250512-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-cpp-deps-v36-absl20250512-
+
+      - name: Download and install Abseil
+        run: |
+          set -ex
+          if [ ! -d "$GITHUB_WORKSPACE/abseil-cpp" ]; then
+            git clone --recursive -b 20250512.1 https://github.com/abseil/abseil-cpp $GITHUB_WORKSPACE/abseil-cpp
+          fi
+          cd $GITHUB_WORKSPACE/abseil-cpp
+          sudo cmake . -DCMAKE_CXX_STANDARD=17 -DABSL_ENABLE_INSTALL=ON -DBUILD_SHARED_LIBS=ON
+          sudo make -j$(nproc)
+          sudo make install -j$(nproc)
+          sudo ldconfig
+
+      - name: Download and install protobuf
+        run: |
+          set -ex
+          if [ ! -d "protobuf" ]; then
+            git clone --recursive -b 36.x https://github.com/protocolbuffers/protobuf
+          fi
+          cd protobuf
+          mkdir -p build && cd build
+          cmake -DCMAKE_CXX_STANDARD=17 -Dprotobuf_BUILD_TESTS=OFF -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=/usr/local/ ..
+          sudo make install -j$(nproc)
+          sudo ldconfig
+
       - name: Cache cl-protobufs build
         id: cache-cl-protobufs
         uses: actions/cache@a7833574556fa59680c1b7cb190c1735db73ebf0 # v5.0.0
         with:
           path: quicklisp/local-projects/cl-protobufs
-          key: ${{ runner.os }}-cl-protobufs-${{ github.sha }}
+          key: ${{ runner.os }}-cl-protobufs-v36-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-cl-protobufs-
+            ${{ runner.os }}-cl-protobufs-v36-
 
       - name: Install protoc plug-in
         run: |
@@ -119,6 +162,8 @@ jobs:
             # git clone https://github.com/qitab/cl-protobufs
             # cd cl-protobufs && git checkout <commit-hash> && cd ..
           fi
+          mkdir -p $GITHUB_WORKSPACE/quicklisp/local-projects/cl-protobufs/google/protobuf
+          cp /usr/local/include/google/protobuf/*.proto $GITHUB_WORKSPACE/quicklisp/local-projects/cl-protobufs/google/protobuf/
           cd cl-protobufs/protoc
           cmake . -DCMAKE_CXX_STANDARD=17
           cmake --build . --target install --parallel $(nproc)
