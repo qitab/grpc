@@ -275,12 +275,12 @@ of operation and check the success."
 
 ;; Wrapped grpc-client.cc functions
 
-(cffi:defcfun ("grpc_ops_free" grpc-ops-free) :void
+(cffi:defcfun ("grpc_ops_free" grpc-ops-free ) :void
   "Deletes and destroys all memory in fields of OPS upto index SIZE
 before freeing ops."
   (ops :pointer) (size :int))
 
-(cffi:defcfun ("grpc_channel_credentials_release" grpc-credentials-release)
+(cffi:defcfun ("grpc_channel_credentials_release" grpc-credentials-release )
   :void
   "Releases CREDENTIALS."
   (credentials :pointer))
@@ -293,7 +293,7 @@ before freeing ops."
   "Unrefs CALL, a grpc_call object."
   (call :pointer))
 
-(cffi:defcfun ("grpc_channel_destroy" grpc-channel-destroy) :void
+(cffi:defcfun ("grpc_channel_destroy" grpc-channel-destroy ) :void
   "Closes and destroys CHANNEL, a grpc_channel object."
   (channel :pointer))
 
@@ -337,7 +337,7 @@ before freeing ops."
   (op :pointer))
 
 (cffi:defcfun ("grpc_insecure_credentials_create"
-               grpc-insecure-credentials-create)
+               grpc-insecure-credentials-create )
   :pointer)
 
 (cffi:defcfun ("grpc_insecure_server_credentials_create"
@@ -357,13 +357,23 @@ before freeing ops."
               (key :string)
               (value :string))
 
-(cffi:defcfun ("lisp_metadata_array_get_key" %metadata-array-get-key) :string
+(cffi:defcfun ("lisp_metadata_array_get_key" %c-metadata-array-get-key) :pointer
               (array :pointer)
               (index :size))
 
-(cffi:defcfun ("lisp_metadata_array_get_value" %metadata-array-get-value) :string
+(cffi:defcfun ("lisp_metadata_array_get_value" %c-metadata-array-get-value) :pointer
               (array :pointer)
               (index :size))
+
+(defun %metadata-array-get-key (array index)
+  (let ((c-key (%c-metadata-array-get-key array index)))
+    (prog1 (cffi:foreign-string-to-lisp c-key)
+      (cffi:foreign-funcall "gpr_free" :pointer c-key :void))))
+
+(defun %metadata-array-get-value (array index)
+  (let ((c-val (%c-metadata-array-get-value array index)))
+    (prog1 (cffi:foreign-string-to-lisp c-val)
+      (cffi:foreign-funcall "gpr_free" :pointer c-val :void))))
 
 (cffi:defcfun ("lisp_metadata_array_get_count" %metadata-array-get-count) :size
               (array :pointer))
@@ -386,7 +396,7 @@ before freeing ops."
                                :pointer call-details
                                :pointer)))
     (prog1 (cffi:foreign-string-to-lisp c-bytes)
-      (cffi:foreign-funcall "free"
+      (cffi:foreign-funcall "gpr_free"
                             :pointer c-bytes
                             :void))))
 
@@ -596,10 +606,12 @@ want. Returns a plist containing keys being the op type and values being the ind
   "Takes a list of bytes BYTES and returns a pointer to the corresponding
 grpc_slice*."
   (let ((array (cffi:foreign-alloc :unsigned-char :initial-contents bytes)))
-    (cffi:foreign-funcall "convert_bytes_to_grpc_slice"
-                          :pointer array
-                          :size (length bytes)
-                          :pointer)))
+    (prog1
+        (cffi:foreign-funcall "convert_bytes_to_grpc_slice"
+                              :pointer array
+                              :size (length bytes)
+                              :pointer)
+      (cffi:foreign-free array))))
 
 ;; Init/Shutdown Functions
 
@@ -679,21 +691,23 @@ macros and only call once."
       (grpc-ops-free receive-op 1)
       (cffi:foreign-free tag)
       (error 'grpc-call-error :call-error call-code))
-    (when (completion-queue-pluck *completion-queue* tag)
+    (let ((plucked-p (completion-queue-pluck *completion-queue* tag)))
       (cffi:foreign-free tag)
-      (let* ((response-byte-buffer
-              (get-grpc-op-recv-message receive-op (getf ops-plist :recv-message)))
-             (message
-              (unless (cffi:null-pointer-p response-byte-buffer)
-                (loop for index from 0
-                        to (1- (get-grpc-byte-buffer-slice-buffer-count
-                                response-byte-buffer))
-                      collecting (get-bytes-from-grpc-byte-buffer
-                                  response-byte-buffer index)
-                        into message
-                      finally
-                   (grpc-byte-buffer-destroy response-byte-buffer)
-                   (return message)))))
+      (let ((message
+              (when plucked-p
+                (let ((response-byte-buffer
+                        (get-grpc-op-recv-message
+                         receive-op (getf ops-plist :recv-message))))
+                  (unless (cffi:null-pointer-p response-byte-buffer)
+                    (loop for index from 0
+                            to (1- (get-grpc-byte-buffer-slice-buffer-count
+                                    response-byte-buffer))
+                          collecting (get-bytes-from-grpc-byte-buffer
+                                      response-byte-buffer index)
+                            into message
+                          finally
+                            (grpc-byte-buffer-destroy response-byte-buffer)
+                            (return message)))))))
         (grpc-ops-free receive-op 1)
         message))))
 

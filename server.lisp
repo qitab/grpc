@@ -216,4 +216,7 @@ Parameters
       (dolist (thread threads)
         (bordeaux-threads:join-thread thread))
 
-    (shutdown-server server cq (cffi:foreign-alloc :int)))))
+      (let ((tag (cffi:foreign-alloc :int)))
+        (unwind-protect
+             (shutdown-server server cq tag)
+          (cffi:foreign-free tag))))))

@@ -70,10 +70,12 @@ grpc_byte_buffer*."
     ((bound-channel address) &body body)
   "Creates a gRPC insecure channel to ADDRESS. Binds the channel to BOUND-CHANNEL, runs BODY,
 and returns its values. After the body has run, the channel is destroyed."
-  `(let ((,bound-channel (create-channel
-                          ,address (grpc::grpc-insecure-credentials-create))))
-     (unwind-protect (progn ,@body)
-       (grpc-channel-destroy ,bound-channel))))
+  (let ((creds (gensym "CREDS")))
+    `(let* ((,creds (grpc::grpc-insecure-credentials-create))
+            (,bound-channel (create-channel ,address ,creds)))
+       (unwind-protect (progn ,@body)
+         (grpc-credentials-release ,creds)
+         (grpc-channel-destroy ,bound-channel)))))
 
 (defmacro with-ssl-channel
     ((bound-channel (address (&key
@@ -134,8 +136,10 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
     (declare (ignore ops-plist))
     (unless (eql call-code :grpc-call-ok)
       (grpc-ops-free close-op 1)
+      (cffi:foreign-free tag)
       (error 'grpc-call-error :call-error call-code))
     (let ((ok (completion-queue-pluck *completion-queue* tag)))
+      (grpc-ops-free close-op 1)
       (cffi:foreign-free tag)
       (unless ok (check-server-status call))
       (values))))

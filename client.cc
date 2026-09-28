@@ -42,9 +42,12 @@ grpc_call* lisp_grpc_channel_create_call(grpc_channel* channel,
         gpr_now(GPR_CLOCK_MONOTONIC),
         gpr_time_from_micros((int64_t)(timeout * 1000000), GPR_TIMESPAN));
   }
-  return grpc_channel_create_call(channel, nullptr, GRPC_PROPAGATE_DEFAULTS, cq,
-                                  grpc_slice_from_copied_string(call_name),
-                                  nullptr, deadline, nullptr);
+  grpc_slice method = grpc_slice_from_copied_string(call_name);
+  grpc_call* call =
+      grpc_channel_create_call(channel, nullptr, GRPC_PROPAGATE_DEFAULTS, cq,
+                               method, nullptr, deadline, nullptr);
+  grpc_slice_unref(method);
+  return call;
 }
 
 // Prepares ops for completion queue pluck/next
@@ -104,6 +107,10 @@ void grpc_ops_free(grpc_op* ops, int size) {
   int i = 0;
   for (i = 0; i < size; i++) {
     if (ops[i].op == GRPC_OP_SEND_INITIAL_METADATA) {
+      for (size_t j = 0; j < ops[i].data.send_initial_metadata.count; j++) {
+        grpc_slice_unref(ops[i].data.send_initial_metadata.metadata[j].key);
+        grpc_slice_unref(ops[i].data.send_initial_metadata.metadata[j].value);
+      }
       delete[] ops[i].data.send_initial_metadata.metadata;
     }
     if (ops[i].op == GRPC_OP_SEND_MESSAGE) {
@@ -116,7 +123,10 @@ void grpc_ops_free(grpc_op* ops, int size) {
       grpc_metadata_array_destroy(
           ops[i].data.recv_status_on_client.trailing_metadata);
       delete ops[i].data.recv_status_on_client.status;
-      delete ops[i].data.recv_status_on_client.status_details;
+      if (ops[i].data.recv_status_on_client.status_details != nullptr) {
+        grpc_slice_unref(*ops[i].data.recv_status_on_client.status_details);
+        delete ops[i].data.recv_status_on_client.status_details;
+      }
     }
     if (ops[i].op == GRPC_OP_RECV_INITIAL_METADATA) {
       grpc_metadata_array_destroy(
@@ -143,13 +153,11 @@ void lisp_metadata_array_set(grpc_metadata* array, size_t index,
   memset(&array[index].internal_data, 0, sizeof(array[index].internal_data));
 }
 
-const char* lisp_metadata_array_get_key(grpc_metadata_array* arr,
-                                        size_t index) {
+char* lisp_metadata_array_get_key(grpc_metadata_array* arr, size_t index) {
   return grpc_slice_to_c_string(arr->metadata[index].key);
 }
 
-const char* lisp_metadata_array_get_value(grpc_metadata_array* arr,
-                                          size_t index) {
+char* lisp_metadata_array_get_value(grpc_metadata_array* arr, size_t index) {
   return grpc_slice_to_c_string(arr->metadata[index].value);
 }
 
@@ -321,8 +329,8 @@ grpc_slice* convert_string_to_grpc_slice(const char* str) {
 // This takes a grpc_slice 'slice' and converts it to a grpc_byte_buffer*
 // that can be sent to the server.
 grpc_byte_buffer* convert_grpc_slice_to_grpc_byte_buffer(grpc_slice* slice) {
-  grpc_byte_buffer* ret = new grpc_byte_buffer();
-  ret = grpc_raw_byte_buffer_create(slice, 1);
+  grpc_byte_buffer* ret = grpc_raw_byte_buffer_create(slice, 1);
+  grpc_slice_unref(*slice);
   return ret;
 }
 
@@ -357,8 +365,8 @@ void free_grpc_slice(grpc_slice* slice) {
 
 grpc_byte_buffer* convert_bytes_to_grpc_byte_buffer(char* buf, size_t len) {
   grpc_slice slice = grpc_slice_from_copied_buffer(buf, len);
-  grpc_byte_buffer* ret = new grpc_byte_buffer();
-  ret = grpc_raw_byte_buffer_create(&slice, 1);
+  grpc_byte_buffer* ret = grpc_raw_byte_buffer_create(&slice, 1);
+  grpc_slice_unref(slice);
   return ret;
 }
 
