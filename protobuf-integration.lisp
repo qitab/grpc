@@ -26,15 +26,18 @@
 (defun get-qualified-method-name (method)
   "Get the qualified METHOD name /service-name/method-name for a method
 given a cl-protobufs method-descriptor."
-  (let ((service-name (proto:proto-service-name method))
-        (rpc-name (proto:proto-name method))
-        ;; Package name is needed for service name
-        ;; but not provided directly in the method, so take
-        ;; it from the qualified name.
-        (package-name
-         (subseq (proto:proto-qualified-name method) 0
-                 (position #\. (proto:proto-qualified-name method) :from-end t))))
-    (concatenate 'string "/" package-name "." service-name "/" rpc-name)))
+  (let* ((service-name (proto:proto-service-name method))
+         (rpc-name (proto:proto-name method))
+         (qualified-name (proto:proto-qualified-name method))
+         (dot-pos (position #\. qualified-name :from-end t))
+         ;; Package name is needed for service name
+         ;; but not provided directly in the method, so take
+         ;; it from the qualified name.
+         (package-name (when (and dot-pos (plusp dot-pos))
+                         (subseq qualified-name 0 dot-pos))))
+    (if package-name
+        (concatenate 'string "/" package-name "." service-name "/" rpc-name)
+        (concatenate 'string "/" service-name "/" rpc-name))))
 
 (defgeneric start-call (channel method request response &key callback timeout metadata)
   (:documentation
@@ -63,9 +66,10 @@ Parameters:
                               context
                               server-stream client-stream)))
     (flet ((deserialize-result (bytes)
-             (proto:deserialize-from-bytes
-              output-type
-              (apply #'concatenate 'proto:byte-vector bytes))))
+             (when bytes
+               (proto:deserialize-from-bytes
+                output-type
+                (apply #'concatenate 'proto:byte-vector bytes)))))
       (if server-stream
           (mapcar #'deserialize-result response)
           (deserialize-result response)))))
@@ -180,7 +184,7 @@ Parameters:
                                       metadata)
   (declare (ignore type request call))
   (let* ((qualified-method-name (get-qualified-method-name method))
-         (context (make-context :metadata metadata :deadline timeout))
+         (context (make-context :metadata metadata :deadline (or timeout -1)))
          (call (start-grpc-call channel qualified-method-name context)))
     (make-client-proto-call
      :c-call (call-c-call call)

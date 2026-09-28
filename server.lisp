@@ -132,6 +132,19 @@
       (cffi:foreign-free tag)
       cqp-p)))
 
+(defun call-method-action (method call)
+  "Invoke METHOD's action on CALL, reading and deserializing the request first
+for non-input-streaming methods."
+  (if (method-details-input-streaming-p method)
+      (funcall (method-details-action method) call)
+      (let* ((messages (or (receive-message call)
+                           (error 'grpc-server-abort
+                                  :status-code :grpc-status-internal
+                                  :status-message "Failed to receive request message.")))
+             (message (apply #'concatenate '(array (unsigned-byte 8) (*)) messages))
+             (deserialized-message (funcall (method-details-deserializer method) message)))
+        (funcall (method-details-action method) deserialized-message call))))
+
 (defun dispatch-requests (methods server &key (exit-count nil))
   "Block on the SERVER for a call then dispatch the call to the
 proper method in METHODS based on the call method name. EXIT-COUNT
@@ -148,40 +161,23 @@ can receive a call."
                                 :test #'string=
                                 :key #'method-details-name)))
               (send-initial-metadata call)
-              (if method
-                  (handler-case
-                      (let ((response
-                             (if (method-details-input-streaming-p method)
-                                 (funcall (method-details-action method) call)
-                                 (let* ((messages (receive-message call))
-                                        (message (apply #'concatenate
-                                                        '(array (unsigned-byte 8) (*)) messages))
-                                        (deserialized-message
-                                         (funcall (method-details-deserializer method) message)))
-                                   (funcall (method-details-action method)
-                                            deserialized-message call)))))
-                        (unless (method-details-output-streaming-p method)
-                          (let ((serialized-response
-                                 (funcall (method-details-serializer method) response)))
-                            (send-message call serialized-response)))
-                        (unless (call-server-send-status-p call)
-                          (setf (call-server-send-status-p call) t)
-                          (server-send-status
-                           call :grpc-status-ok (method-details-input-streaming-p method)))
-                        (unless (method-details-input-streaming-p method)
-                          (server-recv-close call)))
-                    (grpc-server-abort (condition)
-                      (unless (call-server-send-status-p call)
-                        (setf (call-server-send-status-p call) t)
-                        (server-send-status call (abort-status-code condition)
-                                            (method-details-input-streaming-p method)))
-                      (unless (method-details-input-streaming-p method)
-                        (server-recv-close call))))
-                  (progn
-                    (unless (call-server-send-status-p call)
-                      (setf (call-server-send-status-p call) t)
-                      (server-send-status call :grpc-status-unimplemented nil))
-                    (server-recv-close call))))
+              (flet ((finish-call (status-code &optional input-streaming-p)
+                       (unless (call-server-send-status-p call)
+                         (setf (call-server-send-status-p call) t)
+                         (server-send-status call status-code input-streaming-p))
+                       (unless input-streaming-p
+                         (server-recv-close call))))
+                (if method
+                    (let ((input-streaming-p (method-details-input-streaming-p method)))
+                      (handler-case
+                          (let ((response (call-method-action method call)))
+                            (unless (method-details-output-streaming-p method)
+                              (send-message call (funcall (method-details-serializer method)
+                                                          response)))
+                            (finish-call :grpc-status-ok input-streaming-p))
+                        (grpc-server-abort (condition)
+                          (finish-call (abort-status-code condition) input-streaming-p))))
+                    (finish-call :grpc-status-unimplemented))))
          (free-call-data call)))))
 
 (defun run-grpc-server (address methods

@@ -33,6 +33,13 @@ Parameters
                              :qualified-name "lisp.grpc.test.SayHello"))
          (expected-qualified-method-name "/lisp.grpc.test.Greeter/SayHello")
          (qualified-method-name (grpc::get-qualified-method-name method-descriptor)))
+    (assert-true (string= expected-qualified-method-name qualified-method-name)))
+  (let* ((no-pkg-descriptor (proto-impl:make-method-descriptor
+                             :service-name "Greeter"
+                             :name "SayHello"
+                             :qualified-name "SayHello"))
+         (expected-qualified-method-name "/Greeter/SayHello")
+         (qualified-method-name (grpc::get-qualified-method-name no-pkg-descriptor)))
     (assert-true (string= expected-qualified-method-name qualified-method-name))))
 
 (deftest test-start-call-unary-rpc (protobuf-integration-suite)
@@ -65,7 +72,43 @@ the server and a single response is returned."
                              (assert-eq client-stream nil)
                              (list (cl-protobufs:serialize-to-bytes expected-response))))
       (let ((actual-response (grpc::start-call "channel" method request nil)))
-        (assert-equalp actual-response expected-response)))))
+        (assert-equalp actual-response expected-response)))
+    (with-mocked-functions ((grpc-call
+                             (channel
+                              service-method-name
+                              bytes-to-send
+                              client-context
+                              server-stream
+                              client-stream)
+                             (declare (ignore channel service-method-name bytes-to-send
+                                              client-context server-stream client-stream))
+                             nil))
+      (assert-eq nil (grpc::start-call "channel" method request nil)))))
+
+(deftest test-handle-client-stream-call-nil-timeout (protobuf-integration-suite)
+  "Validate handle-client-stream-call (:start) accepts :timeout nil and defaults deadline to -1."
+  (let ((method (proto-impl:make-method-descriptor
+                 :service-name "Greeter"
+                 :name "SayHelloClientStream"
+                 :qualified-name "lisp.grpc.test.SayHelloClientStream"
+                 :input-type 'test-proto:hello-request
+                 :output-type 'test-proto:hello-reply
+                 :output-streaming nil
+                 :input-streaming t))
+        (captured-deadline nil))
+    (with-mocked-functions ((grpc::start-grpc-call
+                             (channel service-method-name client-context)
+                             (declare (ignore channel service-method-name))
+                             (setf captured-deadline (grpc::context-deadline client-context))
+                             (grpc::make-call :c-call (cffi:null-pointer)
+                                              :c-tag (cffi:null-pointer)
+                                              :c-ops (cffi:null-pointer))))
+      (let ((call (grpc::handle-client-stream-call :start
+                                                   :channel "channel"
+                                                   :method method
+                                                   :timeout nil)))
+        (assert-true (grpc::client-proto-call-p call))
+        (assert-eql -1 captured-deadline)))))
 
 (deftest test-start-call-server-streaming-rpc (protobuf-integration-suite)
   "Validate the start-call method properly handles the scenario in which a single request is sent to
