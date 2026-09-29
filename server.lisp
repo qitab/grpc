@@ -52,87 +52,78 @@
 (defun start-call-on-server (server)
   "Make gRPC SERVER call and return a call struct, or NIL if the server
 is shutting down or the call request failed."
-  (let ((tag (cffi:foreign-alloc :int))
-        (metadata (create-new-grpc-metadata-array))
-        (call-details (create-grpc-call-details)))
-    (unwind-protect
-         (let ((c-call (grpc-server-request-call server call-details
-                                                 metadata
-                                                 grpc::*completion-queue*
-                                                 grpc::*completion-queue* tag)))
-           (unless (cffi:null-pointer-p c-call)
-             (let ((method (get-call-method call-details))
-                   (metadata-list (metadata-array-to-list metadata)))
-               (grpc::make-call :c-call c-call
-                                :c-tag (cffi:null-pointer)
-                                :c-ops (cffi:null-pointer)
-                                :method-name method
-                                :ops-plist nil
-                                :is-server-call t
-                                :context (make-context :metadata metadata-list)))))
-      (metadata-destroy metadata)
-      (call-details-destroy call-details)
-      (cffi:foreign-free tag))))
+  (cffi:with-foreign-object (tag :int)
+    (let ((metadata (create-new-grpc-metadata-array))
+          (call-details (create-grpc-call-details)))
+      (unwind-protect
+           (let ((c-call (grpc-server-request-call server call-details
+                                                   metadata
+                                                   grpc::*completion-queue*
+                                                   grpc::*completion-queue* tag)))
+             (unless (cffi:null-pointer-p c-call)
+               (let ((method (get-call-method call-details))
+                     (metadata-list (metadata-array-to-list metadata)))
+                 (grpc::make-call :c-call c-call
+                                  :c-tag (cffi:null-pointer)
+                                  :c-ops (cffi:null-pointer)
+                                  :method-name method
+                                  :ops-plist nil
+                                  :is-server-call t
+                                  :context (make-context :metadata metadata-list)))))
+        (metadata-destroy metadata)
+        (call-details-destroy call-details)))))
 
 (defun send-initial-metadata (call)
   "Send the GRPC_OP_SEND_INITIAL_METADATA from the server through a CALL"
   (declare (type call call))
-  (let* ((num-ops 1)
-         (c-call (call-c-call call))
-         (tag (cffi:foreign-alloc :int))
-         (ops (create-new-grpc-ops num-ops))
-         (ops-plist (prepare-ops ops :send-metadata t))
-         (call-code (call-start-batch c-call ops num-ops tag)))
-    (declare (ignore ops-plist))
-    (unless (eql call-code :grpc-call-ok)
-      (cffi:foreign-free tag)
-      (grpc-ops-free ops num-ops)
-      (error 'grpc-call-error :call-error call-code))
-    (let ((cqp-p (completion-queue-pluck *completion-queue* tag)))
-      (when cqp-p (setf (call-initial-metadata-sent-p call) t))
-      (grpc-ops-free ops num-ops)
-      (cffi:foreign-free tag)
-      cqp-p)))
+  (let ((num-ops 1)
+        (c-call (call-c-call call)))
+    (cffi:with-foreign-objects ((tag :int)
+                                (ops '(:struct grpc-op)))
+      (let ((ops-plist (prepare-ops ops :send-metadata t)))
+        (declare (ignore ops-plist))
+        (unwind-protect
+             (let ((call-code (call-start-batch c-call ops num-ops tag)))
+               (unless (eql call-code :grpc-call-ok)
+                 (error 'grpc-call-error :call-error call-code))
+               (let ((cqp-p (completion-queue-pluck *completion-queue* tag)))
+                 (when cqp-p (setf (call-initial-metadata-sent-p call) t))
+                 cqp-p))
+          (grpc-ops-clear ops num-ops))))))
 
 (defun server-send-status (call &optional (status-code :grpc-status-ok) (with-recv-close nil))
   "Send the GRPC_OP_SEND_STATUS_FROM_SERVER from the server through a CALL"
   (declare (type call call))
-  (let* ((num-ops (if with-recv-close 2 1))
-         (c-call (call-c-call call))
-         (tag (cffi:foreign-alloc :int))
-         (ops (create-new-grpc-ops num-ops))
-         (ops-plist (if with-recv-close
-                        (prepare-ops ops :server-recv-close t :server-send-status status-code)
-                        (prepare-ops ops :server-send-status status-code)))
-         (call-code (call-start-batch c-call ops num-ops tag)))
-    (declare (ignore ops-plist))
-    (unless (eql call-code :grpc-call-ok)
-      (cffi:foreign-free tag)
-      (grpc-ops-free ops num-ops)
-      (error 'grpc-call-error :call-error call-code))
-    (let ((cqp-p (completion-queue-pluck *completion-queue* tag)))
-      (grpc-ops-free ops num-ops)
-      (cffi:foreign-free tag)
-      cqp-p)))
+  (let ((num-ops (if with-recv-close 2 1))
+        (c-call (call-c-call call)))
+    (cffi:with-foreign-objects ((tag :int)
+                                (ops '(:struct grpc-op) 2))
+      (let ((ops-plist (if with-recv-close
+                           (prepare-ops ops :server-recv-close t :server-send-status status-code)
+                           (prepare-ops ops :server-send-status status-code))))
+        (declare (ignore ops-plist))
+        (unwind-protect
+             (let ((call-code (call-start-batch c-call ops num-ops tag)))
+               (unless (eql call-code :grpc-call-ok)
+                 (error 'grpc-call-error :call-error call-code))
+               (completion-queue-pluck *completion-queue* tag))
+          (grpc-ops-clear ops num-ops))))))
 
 (defun server-recv-close (call)
   "Send the GRPC_OP_RECV_STATUS_ON_CLIENT from the server through a CALL"
   (declare (type call call))
-  (let* ((num-ops 1)
-         (c-call (call-c-call call))
-         (tag (cffi:foreign-alloc :int))
-         (ops (create-new-grpc-ops num-ops))
-         (ops-plist (prepare-ops ops :server-recv-close t))
-         (call-code (call-start-batch c-call ops num-ops tag)))
-    (declare (ignore ops-plist))
-    (unless (eql call-code :grpc-call-ok)
-      (cffi:foreign-free tag)
-      (grpc-ops-free ops num-ops)
-      (error 'grpc-call-error :call-error call-code))
-    (let ((cqp-p (completion-queue-pluck *completion-queue* tag)))
-      (grpc-ops-free ops num-ops)
-      (cffi:foreign-free tag)
-      cqp-p)))
+  (let ((num-ops 1)
+        (c-call (call-c-call call)))
+    (cffi:with-foreign-objects ((tag :int)
+                                (ops '(:struct grpc-op)))
+      (let ((ops-plist (prepare-ops ops :server-recv-close t)))
+        (declare (ignore ops-plist))
+        (unwind-protect
+             (let ((call-code (call-start-batch c-call ops num-ops tag)))
+               (unless (eql call-code :grpc-call-ok)
+                 (error 'grpc-call-error :call-error call-code))
+               (completion-queue-pluck *completion-queue* tag))
+          (grpc-ops-clear ops num-ops))))))
 
 (defun call-method-action (method call)
   "Invoke METHOD's action on CALL, reading and deserializing the request first
@@ -200,7 +191,7 @@ Parameters
   DISPATCH-CALL: A function to use to dispatch calls.
                  Useful for debugging."
   (let* ((server (start-server cq server-creds address))
-         threads)
+          threads)
 
     (dolist (method methods)
       (format t "~s~%" (method-details-name method))
@@ -219,7 +210,5 @@ Parameters
       (dolist (thread threads)
         (bordeaux-threads:join-thread thread))
 
-      (let ((tag (cffi:foreign-alloc :int)))
-        (unwind-protect
-             (shutdown-server server cq tag)
-          (cffi:foreign-free tag))))))
+      (cffi:with-foreign-object (tag :int)
+        (shutdown-server server cq tag)))))

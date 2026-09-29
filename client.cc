@@ -12,6 +12,7 @@
 #include <cstdint>
 
 #include <grpc/byte_buffer.h>
+#include "third_party/grpc/include/grpc/byte_buffer_reader.h"  // IWYU pragma: keep
 #include <grpc/grpc.h>
 #include <grpc/impl/grpc_types.h>
 #include <grpc/impl/propagation_bits.h>
@@ -22,6 +23,17 @@
 
 namespace lisp {
 namespace lisp_grpc {
+
+struct LispGrpcOpLayout {
+  int op;
+  uint32_t flags;
+  void* reserved;
+  void* data[8];
+};
+static_assert(sizeof(grpc_op) == sizeof(LispGrpcOpLayout),
+              "grpc_op size must match CFFI (:struct grpc-op)");
+static_assert(alignof(grpc_op) == alignof(LispGrpcOpLayout),
+              "grpc_op alignment must match CFFI (:struct grpc-op)");
 
 extern "C" {
 
@@ -102,10 +114,9 @@ grpc_op* create_new_grpc_ops(int num_ops) {
   return (grpc_op*)calloc(num_ops, sizeof(grpc_op));
 }
 
-// Frees all memory associated with ops.
-void grpc_ops_free(grpc_op* ops, int size) {
-  int i = 0;
-  for (i = 0; i < size; i++) {
+// Frees all memory owned by the elements of ops without freeing the ops array.
+void grpc_ops_clear(grpc_op* ops, int size) {
+  for (int i = 0; i < size; i++) {
     if (ops[i].op == GRPC_OP_SEND_INITIAL_METADATA) {
       for (size_t j = 0; j < ops[i].data.send_initial_metadata.count; j++) {
         grpc_slice_unref(ops[i].data.send_initial_metadata.metadata[j].key);
@@ -139,6 +150,11 @@ void grpc_ops_free(grpc_op* ops, int size) {
       free(ops[i].data.recv_close_on_server.cancelled);
     }
   }
+}
+
+// Frees all memory associated with ops.
+void grpc_ops_free(grpc_op* ops, int size) {
+  grpc_ops_clear(ops, size);
   free(ops);
 }
 
@@ -183,6 +199,7 @@ grpc_metadata* lisp_make_grpc_metadata(const char* key, const char* value) {
 void lisp_grpc_make_send_metadata_op(grpc_op* op, int index,
                                      grpc_metadata* metadata,
                                      size_t count, uint32_t flags) {
+  memset(&op[index], 0, sizeof(grpc_op));
   op[index].op = GRPC_OP_SEND_INITIAL_METADATA;
   op[index].data.send_initial_metadata.count = count;
   op[index].data.send_initial_metadata.metadata = metadata;
@@ -195,6 +212,7 @@ void lisp_grpc_make_send_metadata_op(grpc_op* op, int index,
 // GRPC_OP_SEND_MESSAGE operation.
 void lisp_grpc_make_send_message_op(grpc_op* op, int index,
                                      grpc_byte_buffer* request) {
+  memset(&op[index], 0, sizeof(grpc_op));
   op[index].op = GRPC_OP_SEND_MESSAGE;
   op[index].data.send_message.send_message = request;
   op[index].reserved = nullptr;
@@ -204,8 +222,9 @@ void lisp_grpc_make_send_message_op(grpc_op* op, int index,
 // Stores the given response for the
 // GRPC_OP_RECV_MESSAGE operation.
 void lisp_grpc_make_recv_message_op(grpc_op* op, int index, int flags) {
+  memset(&op[index], 0, sizeof(grpc_op));
   op[index].op = GRPC_OP_RECV_MESSAGE;
-  op[index].data.recv_message.recv_message = new grpc_byte_buffer*;
+  op[index].data.recv_message.recv_message = new grpc_byte_buffer*();
   op[index].reserved = nullptr;
   op[index].flags = flags;
 }
@@ -220,6 +239,7 @@ grpc_byte_buffer* lisp_grpc_op_recv_message(grpc_op* op, int index) {
 // Stores the given metadata for the
 // GRPC_OP_RECV_INITIAL_METADATA operation.
 void lisp_grpc_make_recv_metadata_op(grpc_op* op, int index) {
+  memset(&op[index], 0, sizeof(grpc_op));
   op[index].op = GRPC_OP_RECV_INITIAL_METADATA;
   op[index].data.recv_initial_metadata.recv_initial_metadata =
       create_new_grpc_metadata_array();
@@ -236,6 +256,7 @@ grpc_metadata_array* lisp_grpc_op_get_initial_metadata(grpc_op* ops, int index)
 // Stores the given flags for the
 // GRPC_OP_SEND_CLOSE_FROM_CLIENT operation.
 void lisp_grpc_client_make_close_op(grpc_op* op, int index, uint32_t flags) {
+  memset(&op[index], 0, sizeof(grpc_op));
   op[index].op = GRPC_OP_SEND_CLOSE_FROM_CLIENT;
   op[index].flags = flags;
   op[index].reserved = nullptr;
@@ -245,6 +266,7 @@ void lisp_grpc_client_make_close_op(grpc_op* op, int index, uint32_t flags) {
 // Stores the given trailing_metadata, status, details, and flags for the
 // GRPC_OP_RECV_STATUS_ON_CLIENT operation.
 void lisp_grpc_client_make_recv_status_op(grpc_op* op, int index, int flags) {
+  memset(&op[index], 0, sizeof(grpc_op));
   op[index].op = GRPC_OP_RECV_STATUS_ON_CLIENT;
   op[index].data.recv_status_on_client.trailing_metadata =
       create_new_grpc_metadata_array();
@@ -289,7 +311,8 @@ void lisp_grpc_server_make_send_status_op(grpc_op* op,
 // Stores the given metadata, cancelled and flags for the
 // GRPC_OP_RECV_CLOSE_ON_SERVER operation.
 void lisp_grpc_server_make_close_op(grpc_op* op, int index, int* cancelled,
-                                    uint32_t flags ) {
+                                    uint32_t flags) {
+  memset(&op[index], 0, sizeof(grpc_op));
   op[index].op = GRPC_OP_RECV_CLOSE_ON_SERVER;
   op[index].data.recv_close_on_server.cancelled = cancelled;
   op[index].flags = flags;
@@ -307,6 +330,7 @@ void lisp_grpc_make_send_status_from_server_op(grpc_op* op,
                                                uint32_t metadata_count,
                                                grpc_status_code status,
                                                uint32_t flags) {
+  memset(&op[index], 0, sizeof(grpc_op));
   op[index].op = GRPC_OP_SEND_STATUS_FROM_SERVER;
   op[index].data.send_status_from_server.trailing_metadata = trailing_metadata;
   op[index].data.send_status_from_server.trailing_metadata_count =
@@ -353,6 +377,24 @@ grpc_slice* get_grpc_slice_from_grpc_byte_buffer(grpc_byte_buffer* buf,
 
 int grpc_byte_buffer_slice_buffer_count(grpc_byte_buffer* buf) {
   return buf->data.raw.slice_buffer.count;
+}
+
+void copy_grpc_byte_buffer_to_bytes(grpc_byte_buffer* buf, uint8_t* dst) {
+  grpc_byte_buffer_reader reader;
+  if (!grpc_byte_buffer_reader_init(&reader, buf)) {
+    return;
+  }
+  grpc_slice slice;
+  size_t offset = 0;
+  while (grpc_byte_buffer_reader_next(&reader, &slice)) {
+    size_t len = GRPC_SLICE_LENGTH(slice);
+    if (len > 0) {
+      memcpy(dst + offset, GRPC_SLICE_START_PTR(slice), len);
+      offset += len;
+    }
+    grpc_slice_unref(slice);
+  }
+  grpc_byte_buffer_reader_destroy(&reader);
 }
 
 char* convert_grpc_slice_to_string(grpc_slice* slice) {

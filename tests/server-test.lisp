@@ -74,12 +74,12 @@ properly handle the scenario and return true when a call code
 
 (deftest test-server-receive-message-completion-queue-pluck-nil-success
     (server-suite)
-  "Validate that receive-message method properly handles the scenario, frees
+  "Validate that receive-message method properly handles the scenario, clears
 receive-op, and returns nil when a call code of grpc-call-ok and nil for
 completion-queue-pluck is sent."
   (let ((call-object (make-null-call))
-        (ops-freed-p nil)
-        (orig-ops-free #'grpc::grpc-ops-free))
+        (ops-cleared-p nil)
+        (orig-ops-clear #'grpc::grpc-ops-clear))
     (with-mocked-functions ((grpc::call-start-batch
                              (c-call ops num-ops tag)
                              (declare (ignore c-call ops num-ops tag))
@@ -88,12 +88,12 @@ completion-queue-pluck is sent."
                              (completion_queue tag)
                              (declare (ignore completion_queue tag))
                              nil)
-                            (grpc::grpc-ops-free
+                            (grpc::grpc-ops-clear
                              (ops size)
-                             (setf ops-freed-p t)
-                             (funcall orig-ops-free ops size)))
+                             (setf ops-cleared-p t)
+                             (funcall orig-ops-clear ops size)))
       (assert-false (grpc::receive-message call-object))
-      (assert-true ops-freed-p))))
+      (assert-true ops-cleared-p))))
 
 (deftest test-server-receive-message-get-grpc-op-recv-message-null-pointer-success
     (server-suite)
@@ -129,14 +129,16 @@ preserve embedded and leading null (0x00) bytes without truncating."
         (grpc::free-slice slice)))
     (let ((byte-buffer (grpc::convert-bytes-to-grpc-byte-buffer expected)))
       (unwind-protect
-           (assert-equalp expected (grpc::get-bytes-from-grpc-byte-buffer byte-buffer 0))
+           (progn
+             (assert-equalp expected (grpc::get-bytes-from-grpc-byte-buffer byte-buffer))
+             (assert-equalp expected (grpc::get-bytes-from-grpc-byte-buffer byte-buffer 0)))
         (grpc::grpc-byte-buffer-destroy byte-buffer)))))
 
 (deftest test-client-close-frees-ops (server-suite)
-  "Validate that client-close frees close-op on both success and error paths."
+  "Validate that client-close clears close-op on both success and error paths."
   (let ((call-object (make-null-call))
-        (ops-free-count 0)
-        (orig-ops-free #'grpc::grpc-ops-free))
+        (ops-clear-count 0)
+        (orig-ops-clear #'grpc::grpc-ops-clear))
     (with-mocked-functions ((grpc::call-start-batch
                              (c-call ops num-ops tag)
                              (declare (ignore c-call ops num-ops tag))
@@ -145,23 +147,23 @@ preserve embedded and leading null (0x00) bytes without truncating."
                              (completion_queue tag)
                              (declare (ignore completion_queue tag))
                              t)
-                            (grpc::grpc-ops-free
+                            (grpc::grpc-ops-clear
                              (ops size)
-                             (incf ops-free-count)
-                             (funcall orig-ops-free ops size)))
+                             (incf ops-clear-count)
+                             (funcall orig-ops-clear ops size)))
       (grpc::client-close call-object)
-      (assert-eql 1 ops-free-count))
+      (assert-eql 1 ops-clear-count))
     (with-mocked-functions ((grpc::call-start-batch
                              (c-call ops num-ops tag)
                              (declare (ignore c-call ops num-ops tag))
                              :grpc-call-error)
-                            (grpc::grpc-ops-free
+                            (grpc::grpc-ops-clear
                              (ops size)
-                             (incf ops-free-count)
-                             (funcall orig-ops-free ops size)))
+                             (incf ops-clear-count)
+                             (funcall orig-ops-clear ops size)))
       (assert-condition grpc::grpc-call-error
                         (grpc::client-close call-object))
-      (assert-eql 2 ops-free-count))))
+      (assert-eql 2 ops-clear-count))))
 
 (deftest test-with-insecure-channel-releases-credentials (server-suite)
   "Validate that with-insecure-channel releases the created credentials and
@@ -200,9 +202,11 @@ crashing or corrupting memory."
     (grpc::free-slice slice)
     (assert-equalp bytes roundtrip-from-slice)
     (assert-eql 1 (grpc::get-grpc-byte-buffer-slice-buffer-count buf-from-slice))
+    (assert-equalp bytes (grpc::get-bytes-from-grpc-byte-buffer buf-from-slice))
     (assert-equalp bytes (grpc::get-bytes-from-grpc-byte-buffer buf-from-slice 0))
     (grpc::grpc-byte-buffer-destroy buf-from-slice)
     (assert-eql 1 (grpc::get-grpc-byte-buffer-slice-buffer-count buf-from-bytes))
+    (assert-equalp bytes (grpc::get-bytes-from-grpc-byte-buffer buf-from-bytes))
     (assert-equalp bytes (grpc::get-bytes-from-grpc-byte-buffer buf-from-bytes 0))
     (grpc::grpc-byte-buffer-destroy buf-from-bytes)))
 
@@ -233,8 +237,8 @@ has not yet been sent on a call with context, and 1 op on subsequent sends."
                        :initial-metadata-sent-p nil))
          (bytes (flexi-streams:string-to-octets "hello"))
          (batch-num-ops nil)
-         (freed-num-ops nil)
-         (orig-free-ops #'grpc::grpc-ops-free))
+         (cleared-num-ops nil)
+         (orig-clear-ops #'grpc::grpc-ops-clear))
     (with-mocked-functions ((grpc::call-start-batch
                              (c-call ops num-ops tag)
                              (declare (ignore c-call ops tag))
@@ -244,15 +248,15 @@ has not yet been sent on a call with context, and 1 op on subsequent sends."
                              (completion-queue tag)
                              (declare (ignore completion-queue tag))
                              t)
-                            (grpc::grpc-ops-free
+                            (grpc::grpc-ops-clear
                              (ops size)
-                             (push size freed-num-ops)
-                             (funcall orig-free-ops ops size)))
+                             (push size cleared-num-ops)
+                             (funcall orig-clear-ops ops size)))
       (assert-true (grpc::send-message call-object bytes))
       (assert-true (grpc::call-initial-metadata-sent-p call-object))
       (assert-true (grpc::send-message call-object bytes)))
     (assert-equal '(2 1) (nreverse batch-num-ops))
-    (assert-equal '(2 1) (nreverse freed-num-ops))))
+    (assert-equal '(2 1) (nreverse cleared-num-ops))))
 
 (deftest test-concatenate-byte-vectors (server-suite)
   "Validate that concatenate-byte-vectors handles empty, single, and large

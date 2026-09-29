@@ -275,6 +275,18 @@ of operation and check the success."
 
 ;; Wrapped grpc-client.cc functions
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (cffi:defcstruct grpc-op
+    (op :int)
+    (flags :uint32)
+    (reserved :pointer)
+    (data :pointer :count 8)))
+
+(cffi:defcfun ("grpc_ops_clear" grpc-ops-clear ) :void
+  "Deletes and destroys all memory in fields of OPS upto index SIZE
+without freeing the OPS array itself."
+  (ops :pointer) (size :int))
+
 (cffi:defcfun ("grpc_ops_free" grpc-ops-free ) :void
   "Deletes and destroys all memory in fields of OPS upto index SIZE
 before freeing ops."
@@ -335,6 +347,15 @@ before freeing ops."
 (cffi:defcfun ("grpc_byte_buffer_slice_buffer_count"
                get-grpc-byte-buffer-slice-buffer-count ) :int
   (op :pointer))
+
+(cffi:defcfun ("grpc_byte_buffer_length"
+               grpc-byte-buffer-length ) :size
+  (buffer :pointer))
+
+(cffi:defcfun ("copy_grpc_byte_buffer_to_bytes"
+               copy-grpc-byte-buffer-to-bytes ) :void
+  (buffer :pointer)
+  (dst :pointer))
 
 (cffi:defcfun ("grpc_insecure_credentials_create"
                grpc-insecure-credentials-create )
@@ -402,18 +423,30 @@ before freeing ops."
 
 (defun convert-grpc-slice-to-bytes (slice)
   "Takes SLICE and returns its content as a vector of bytes."
-  (let ((length (grpc-slice-length slice)))
-    (if (zerop length)
-        (make-array 0 :element-type '(unsigned-byte 8))
-        (cffi:foreign-array-to-lisp (grpc-slice-start-ptr slice)
-                                    (list :array :uint8 length)
-                                    :element-type '(unsigned-byte 8)))))
+  (let* ((length (grpc-slice-length slice))
+         (bytes (make-array length :element-type '(unsigned-byte 8))))
+    (when (plusp length)
+      (cffi:with-pointer-to-vector-data (ptr bytes)
+        (cffi:foreign-funcall "memcpy"
+                              :pointer ptr
+                              :pointer (grpc-slice-start-ptr slice)
+                              :size length
+                              :pointer)))
+    bytes))
 
-(defun get-bytes-from-grpc-byte-buffer (buffer index)
-  "Get a lisp-vector of bytes from the grpc_slice at INDEX
-i of grpc_byte_buffer BUFFER."
-  (convert-grpc-slice-to-bytes
-   (get-grpc-slice-from-grpc-byte-buffer buffer index)))
+(defun get-bytes-from-grpc-byte-buffer (buffer &optional index)
+  "Get a lisp-vector of bytes from grpc_byte_buffer BUFFER.
+If INDEX is nil, copies the entire byte buffer in one call; if INDEX is
+supplied, returns the bytes of the slice at INDEX."
+  (if index
+      (convert-grpc-slice-to-bytes
+       (get-grpc-slice-from-grpc-byte-buffer buffer index))
+      (let* ((length (grpc-byte-buffer-length buffer))
+             (bytes (make-array length :element-type '(unsigned-byte 8))))
+        (when (plusp length)
+          (cffi:with-pointer-to-vector-data (ptr bytes)
+            (copy-grpc-byte-buffer-to-bytes buffer ptr)))
+        bytes)))
 
 (defun concatenate-byte-vectors (byte-vectors)
   "Concatenates a list of byte vectors BYTE-VECTORS into a single
@@ -433,13 +466,14 @@ i of grpc_byte_buffer BUFFER."
 
 (defun convert-bytes-to-grpc-byte-buffer (bytes)
   "Given a lisp-vector of BYTES convert them to a grpc_byte_buffer."
-  (let ((array (cffi:foreign-alloc :unsigned-char :initial-contents bytes)))
-    (prog1
-        (cffi:foreign-funcall "convert_bytes_to_grpc_byte_buffer"
-                               :pointer array
-                               :int (length bytes)
-                               :pointer)
-      (cffi:foreign-free array))))
+  (let ((octet-vec (if (typep bytes '(simple-array (unsigned-byte 8) (*)))
+                       bytes
+                       (coerce bytes '(simple-array (unsigned-byte 8) (*))))))
+    (cffi:with-pointer-to-vector-data (ptr octet-vec)
+      (cffi:foreign-funcall "convert_bytes_to_grpc_byte_buffer"
+                            :pointer ptr
+                            :size (length octet-vec)
+                            :pointer))))
 
 (defun convert-metadata-flag-to-integer (flag)
   "Converts FLAG, a metadata symbol, to its integer equivalent."
@@ -606,7 +640,8 @@ want. Returns a plist containing keys being the op type and values being the ind
       (when recv-message
         (make-recv-message-op ops :flag 0 :index (next-marker :recv-message)))
       (when server-recv-close
-        (make-recv-close-on-server-op ops :cancelled (cffi:foreign-alloc :int) :flag 0 :index (next-marker :server-close)))
+        (make-recv-close-on-server-op ops :cancelled (cffi:foreign-alloc :int)
+                                          :flag 0 :index (next-marker :server-close)))
       (when server-send-status
         (make-send-status-from-server-op ops :metadata (cffi:null-pointer) :count 0 :status server-send-status :flag 0 :index (next-marker :server-send-status))))
     ops-plist))
@@ -618,15 +653,16 @@ want. Returns a plist containing keys being the op type and values being the ind
 (cffi:defctype :size #+64-bit :uint64 #+32-bit :uint32)
 
 (defun convert-bytes-to-grpc-slice (bytes)
-  "Takes a list of bytes BYTES and returns a pointer to the corresponding
+  "Takes a sequence of bytes BYTES and returns a pointer to the corresponding
 grpc_slice*."
-  (let ((array (cffi:foreign-alloc :unsigned-char :initial-contents bytes)))
-    (prog1
-        (cffi:foreign-funcall "convert_bytes_to_grpc_slice"
-                              :pointer array
-                              :size (length bytes)
-                              :pointer)
-      (cffi:foreign-free array))))
+  (let ((octet-vec (if (typep bytes '(simple-array (unsigned-byte 8) (*)))
+                       bytes
+                       (coerce bytes '(simple-array (unsigned-byte 8) (*))))))
+    (cffi:with-pointer-to-vector-data (ptr octet-vec)
+      (cffi:foreign-funcall "convert_bytes_to_grpc_slice"
+                            :pointer ptr
+                            :size (length octet-vec)
+                            :pointer))))
 
 ;; Init/Shutdown Functions
 
@@ -697,34 +733,24 @@ macros and only call once."
 (defun receive-message (call)
   "Receive a message from the client for a CALL."
   (declare (type call call))
-  (let* ((tag (cffi:foreign-alloc :int))
-         (c-call (call-c-call call))
-         (receive-op (create-new-grpc-ops 1))
-         (ops-plist (prepare-ops receive-op :recv-message t))
-         (call-code (call-start-batch c-call receive-op 1 tag)))
-    (unless (eql call-code :grpc-call-ok)
-      (grpc-ops-free receive-op 1)
-      (cffi:foreign-free tag)
-      (error 'grpc-call-error :call-error call-code))
-    (let ((plucked-p (completion-queue-pluck *completion-queue* tag)))
-      (cffi:foreign-free tag)
-      (let ((message
-              (when plucked-p
-                (let ((response-byte-buffer
-                        (get-grpc-op-recv-message
-                         receive-op (getf ops-plist :recv-message))))
-                  (unless (cffi:null-pointer-p response-byte-buffer)
-                    (loop for index from 0
-                            to (1- (get-grpc-byte-buffer-slice-buffer-count
-                                    response-byte-buffer))
-                          collecting (get-bytes-from-grpc-byte-buffer
-                                      response-byte-buffer index)
-                            into message
-                          finally
-                            (grpc-byte-buffer-destroy response-byte-buffer)
-                            (return message)))))))
-        (grpc-ops-free receive-op 1)
-        message))))
+  (let ((c-call (call-c-call call)))
+    (cffi:with-foreign-objects ((tag :int)
+                                (receive-op '(:struct grpc-op)))
+      (let ((ops-plist (prepare-ops receive-op :recv-message t)))
+        (unwind-protect
+             (let ((call-code (call-start-batch c-call receive-op 1 tag)))
+               (unless (eql call-code :grpc-call-ok)
+                 (error 'grpc-call-error :call-error call-code))
+               (when (completion-queue-pluck *completion-queue* tag)
+                 (let ((response-byte-buffer
+                         (get-grpc-op-recv-message
+                          receive-op (getf ops-plist :recv-message))))
+                   (unless (cffi:null-pointer-p response-byte-buffer)
+                     (unwind-protect
+                          (list (get-bytes-from-grpc-byte-buffer
+                                 response-byte-buffer))
+                       (grpc-byte-buffer-destroy response-byte-buffer))))))
+          (grpc-ops-clear receive-op 1))))))
 
 (defun send-message (call bytes-to-send)
   "Send the GRPC_OP_SEND_MESSAGE message encoded in BYTES-TO-SEND to the server through a CALL"
@@ -734,27 +760,25 @@ macros and only call once."
                              (not (call-initial-metadata-sent-p call))
                              (or (context-metadata context) t)))
          (num-ops (if send-metadata 2 1))
-         (c-call (call-c-call call))
-         (tag (cffi:foreign-alloc :int))
-         (ops (create-new-grpc-ops num-ops))
-         (grpc-slice
-          (convert-bytes-to-grpc-byte-buffer bytes-to-send))
-         (ops-plist (prepare-ops
-                     ops
-                     :send-message grpc-slice
-                     :send-metadata send-metadata))
-         (call-code (call-start-batch c-call ops num-ops tag)))
-    (declare (ignore ops-plist))
-    (unless (eql call-code :grpc-call-ok)
-      (cffi:foreign-free tag)
-      (grpc-ops-free ops num-ops)
-      (error 'grpc-call-error :call-error call-code))
-    (let ((cqp-p (completion-queue-pluck *completion-queue* tag)))
-      (when (and cqp-p (not (call-initial-metadata-sent-p call)))
-        (setf (call-initial-metadata-sent-p call) t))
-      (grpc-ops-free ops num-ops)
-      (cffi:foreign-free tag)
-      cqp-p)))
+         (c-call (call-c-call call)))
+    (cffi:with-foreign-objects ((tag :int)
+                                (ops '(:struct grpc-op) 2))
+      (let* ((grpc-slice
+               (convert-bytes-to-grpc-byte-buffer bytes-to-send))
+             (ops-plist (prepare-ops
+                         ops
+                         :send-message grpc-slice
+                         :send-metadata send-metadata)))
+        (declare (ignore ops-plist))
+        (unwind-protect
+             (let ((call-code (call-start-batch c-call ops num-ops tag)))
+               (unless (eql call-code :grpc-call-ok)
+                 (error 'grpc-call-error :call-error call-code))
+               (let ((cqp-p (completion-queue-pluck *completion-queue* tag)))
+                 (when (and cqp-p (not (call-initial-metadata-sent-p call)))
+                   (setf (call-initial-metadata-sent-p call) t))
+                 cqp-p))
+          (grpc-ops-clear ops num-ops))))))
 
 (defun free-call-data (call)
   "Free the call data stored in CALL-OBJ."
