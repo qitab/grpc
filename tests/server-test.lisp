@@ -221,3 +221,36 @@ client-recv-status can be freed cleanly by grpc-ops-free."
     (assert-eql 2 (getf plist :client-recv-status))
     (grpc::grpc-ops-free ops 3)))
 
+(deftest test-send-message-with-initial-metadata (server-suite)
+  "Validate that send-message allocates and passes 2 ops when initial metadata
+has not yet been sent on a call with context, and 1 op on subsequent sends."
+  (let* ((call-object (grpc::make-call
+                       :c-call (cffi:null-pointer)
+                       :c-tag (cffi:null-pointer)
+                       :c-ops (cffi:null-pointer)
+                       :ops-plist nil
+                       :context (grpc::make-context :metadata '(("x-key" "x-val")))
+                       :initial-metadata-sent-p nil))
+         (bytes (flexi-streams:string-to-octets "hello"))
+         (batch-num-ops nil)
+         (freed-num-ops nil)
+         (orig-free-ops #'grpc::grpc-ops-free))
+    (with-mocked-functions ((grpc::call-start-batch
+                             (c-call ops num-ops tag)
+                             (declare (ignore c-call ops tag))
+                             (push num-ops batch-num-ops)
+                             :grpc-call-ok)
+                            (grpc::completion-queue-pluck
+                             (completion-queue tag)
+                             (declare (ignore completion-queue tag))
+                             t)
+                            (grpc::grpc-ops-free
+                             (ops size)
+                             (push size freed-num-ops)
+                             (funcall orig-free-ops ops size)))
+      (assert-true (grpc::send-message call-object bytes))
+      (assert-true (grpc::call-initial-metadata-sent-p call-object))
+      (assert-true (grpc::send-message call-object bytes)))
+    (assert-equal '(2 1) (nreverse batch-num-ops))
+    (assert-equal '(2 1) (nreverse freed-num-ops))))
+

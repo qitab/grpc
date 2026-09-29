@@ -714,19 +714,20 @@ macros and only call once."
 (defun send-message (call bytes-to-send)
   "Send the GRPC_OP_SEND_MESSAGE message encoded in BYTES-TO-SEND to the server through a CALL"
   (declare (type call call))
-  (let* ((num-ops 1)
+  (let* ((context (call-context call))
+         (send-metadata (and context
+                             (not (call-initial-metadata-sent-p call))
+                             (or (context-metadata context) t)))
+         (num-ops (if send-metadata 2 1))
          (c-call (call-c-call call))
          (tag (cffi:foreign-alloc :int))
          (ops (create-new-grpc-ops num-ops))
          (grpc-slice
           (convert-bytes-to-grpc-byte-buffer bytes-to-send))
-         (context (call-context call))
          (ops-plist (prepare-ops
                      ops
                      :send-message grpc-slice
-                     :send-metadata (and context
-                                         (not (call-initial-metadata-sent-p call))
-                                         (or (context-metadata context) t))))
+                     :send-metadata send-metadata))
          (call-code (call-start-batch c-call ops num-ops tag)))
     (declare (ignore ops-plist))
     (unless (eql call-code :grpc-call-ok)
