@@ -254,3 +254,30 @@ has not yet been sent on a call with context, and 1 op on subsequent sends."
     (assert-equal '(2 1) (nreverse batch-num-ops))
     (assert-equal '(2 1) (nreverse freed-num-ops))))
 
+(deftest test-concatenate-byte-vectors (server-suite)
+  "Validate that concatenate-byte-vectors handles empty, single, and large
+numbers of slices without hitting CALL-ARGUMENTS-LIMIT."
+  (assert-equalp (make-array 0 :element-type '(unsigned-byte 8))
+                 (grpc::concatenate-byte-vectors nil))
+  (let ((single (make-array 3 :element-type '(unsigned-byte 8)
+                              :initial-contents '(1 2 3))))
+    (assert-eql single (grpc::concatenate-byte-vectors (list single))))
+  (let* ((count 100)
+         (slices (loop for i below count
+                       collect (make-array 2 :element-type '(unsigned-byte 8)
+                                             :initial-contents (list i (1+ i)))))
+         (result (grpc::concatenate-byte-vectors slices)))
+    (assert-eql (* count 2) (length result))
+    (loop for i below count
+          do (assert-eql i (aref result (* i 2)))
+             (assert-eql (1+ i) (aref result (1+ (* i 2)))))))
+
+(deftest test-start-call-on-server-null-call (server-suite)
+  "Validate that start-call-on-server returns nil and dispatch-requests exits
+cleanly when grpc-server-request-call returns a null call pointer."
+  (with-mocked-functions ((grpc::grpc-server-request-call
+                           (server details metadata cq-bound cq-notify tag)
+                           (declare (ignore server details metadata cq-bound cq-notify tag))
+                           (cffi:null-pointer)))
+    (assert-false (grpc::start-call-on-server (cffi:null-pointer)))
+    (assert-false (grpc::dispatch-requests nil (cffi:null-pointer)))))

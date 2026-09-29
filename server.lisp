@@ -50,27 +50,29 @@
   (tag :pointer))
 
 (defun start-call-on-server (server)
-  "Make gRPC SERVER call and return a call struct"
-  (let* ((tag (cffi:foreign-alloc :int))
-         (metadata (create-new-grpc-metadata-array))
-         (call-details (create-grpc-call-details))
-         (c-call (grpc-server-request-call server call-details
-                                           metadata
-                                           grpc::*completion-queue*
-                                           grpc::*completion-queue* tag))
-         (method (get-call-method call-details))
-         (metadata-list (metadata-array-to-list metadata)))
-    (assert (not (cffi:null-pointer-p c-call)))
-    (metadata-destroy metadata)
-    (call-details-destroy call-details)
-    (cffi:foreign-free tag)
-    (grpc::make-call :c-call c-call
-                     :c-tag (cffi:null-pointer)
-                     :c-ops (cffi:null-pointer)
-                     :method-name method
-                     :ops-plist nil
-                     :is-server-call t
-                     :context (make-context :metadata metadata-list))))
+  "Make gRPC SERVER call and return a call struct, or NIL if the server
+is shutting down or the call request failed."
+  (let ((tag (cffi:foreign-alloc :int))
+        (metadata (create-new-grpc-metadata-array))
+        (call-details (create-grpc-call-details)))
+    (unwind-protect
+         (let ((c-call (grpc-server-request-call server call-details
+                                                 metadata
+                                                 grpc::*completion-queue*
+                                                 grpc::*completion-queue* tag)))
+           (unless (cffi:null-pointer-p c-call)
+             (let ((method (get-call-method call-details))
+                   (metadata-list (metadata-array-to-list metadata)))
+               (grpc::make-call :c-call c-call
+                                :c-tag (cffi:null-pointer)
+                                :c-ops (cffi:null-pointer)
+                                :method-name method
+                                :ops-plist nil
+                                :is-server-call t
+                                :context (make-context :metadata metadata-list)))))
+      (metadata-destroy metadata)
+      (call-details-destroy call-details)
+      (cffi:foreign-free tag))))
 
 (defun send-initial-metadata (call)
   "Send the GRPC_OP_SEND_INITIAL_METADATA from the server through a CALL"
@@ -141,7 +143,7 @@ for non-input-streaming methods."
                            (error 'grpc-server-abort
                                   :status-code :grpc-status-internal
                                   :status-message "Failed to receive request message.")))
-             (message (apply #'concatenate '(array (unsigned-byte 8) (*)) messages))
+             (message (concatenate-byte-vectors messages))
              (deserialized-message (funcall (method-details-deserializer method) message)))
         (funcall (method-details-action method) deserialized-message call))))
 
@@ -153,32 +155,33 @@ can receive a call."
   (loop for calls-received from 0
         while (or (not exit-count)
                   (< calls-received exit-count))
+        for call = (start-call-on-server server)
+        while call
         do
-     (let ((call (start-call-on-server server)))
-       (unwind-protect
-            (let ((method (find (call-method-name call)
-                                methods
-                                :test #'string=
-                                :key #'method-details-name)))
-              (send-initial-metadata call)
-              (flet ((finish-call (status-code &optional input-streaming-p)
-                       (unless (call-server-send-status-p call)
-                         (setf (call-server-send-status-p call) t)
-                         (server-send-status call status-code input-streaming-p))
-                       (unless input-streaming-p
-                         (server-recv-close call))))
-                (if method
-                    (let ((input-streaming-p (method-details-input-streaming-p method)))
-                      (handler-case
-                          (let ((response (call-method-action method call)))
-                            (unless (method-details-output-streaming-p method)
-                              (send-message call (funcall (method-details-serializer method)
-                                                          response)))
-                            (finish-call :grpc-status-ok input-streaming-p))
-                        (grpc-server-abort (condition)
-                          (finish-call (abort-status-code condition) input-streaming-p))))
-                    (finish-call :grpc-status-unimplemented))))
-         (free-call-data call)))))
+     (unwind-protect
+          (let ((method (find (call-method-name call)
+                              methods
+                              :test #'string=
+                              :key #'method-details-name)))
+            (send-initial-metadata call)
+            (flet ((finish-call (status-code &optional input-streaming-p)
+                     (unless (call-server-send-status-p call)
+                       (setf (call-server-send-status-p call) t)
+                       (server-send-status call status-code input-streaming-p))
+                     (unless input-streaming-p
+                       (server-recv-close call))))
+              (if method
+                  (let ((input-streaming-p (method-details-input-streaming-p method)))
+                    (handler-case
+                        (let ((response (call-method-action method call)))
+                          (unless (method-details-output-streaming-p method)
+                            (send-message call (funcall (method-details-serializer method)
+                                                        response)))
+                          (finish-call :grpc-status-ok input-streaming-p))
+                      (grpc-server-abort (condition)
+                        (finish-call (abort-status-code condition) input-streaming-p))))
+                  (finish-call :grpc-status-unimplemented))))
+       (free-call-data call))))
 
 (defun run-grpc-server (address methods
                         &key

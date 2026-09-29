@@ -415,6 +415,21 @@ i of grpc_byte_buffer BUFFER."
   (convert-grpc-slice-to-bytes
    (get-grpc-slice-from-grpc-byte-buffer buffer index)))
 
+(defun concatenate-byte-vectors (byte-vectors)
+  "Concatenates a list of byte vectors BYTE-VECTORS into a single
+(simple-array (unsigned-byte 8) (*)) without using APPLY #'CONCATENATE."
+  (if (and byte-vectors
+           (null (cdr byte-vectors))
+           (typep (car byte-vectors) '(simple-array (unsigned-byte 8) (*))))
+      (car byte-vectors)
+      (let* ((total-length (loop for vec in byte-vectors sum (length vec)))
+             (result (make-array total-length :element-type '(unsigned-byte 8))))
+        (loop with offset = 0
+              for vec in byte-vectors
+              do (replace result vec :start1 offset)
+                 (incf offset (length vec)))
+        result)))
+
 
 (defun convert-bytes-to-grpc-byte-buffer (bytes)
   "Given a lisp-vector of BYTES convert them to a grpc_byte_buffer."

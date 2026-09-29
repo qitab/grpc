@@ -69,7 +69,7 @@ Parameters:
              (when bytes
                (proto:deserialize-from-bytes
                 output-type
-                (apply #'concatenate 'proto:byte-vector bytes)))))
+                (concatenate-byte-vectors bytes)))))
       (if server-stream
           (mapcar #'deserialize-result response)
           (deserialize-result response)))))
@@ -129,7 +129,7 @@ Parameters:
     (when messages
       (proto:deserialize-from-bytes
        (call-input-type call)
-       (apply #'concatenate 'proto:byte-vector messages)))))
+       (concatenate-byte-vectors messages)))))
 
 (defmethod stream-receive ((call client-proto-call))
   (when (call-call-cleaned-up-p call)
@@ -142,7 +142,7 @@ Parameters:
     (if messages
         (proto:deserialize-from-bytes
          (call-output-type call)
-         (apply #'concatenate 'proto:byte-vector messages))
+         (concatenate-byte-vectors messages))
         (progn
           (check-server-status call)
           nil))))
