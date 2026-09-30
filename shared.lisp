@@ -301,7 +301,7 @@ before freeing ops."
   "Destroys BYTE-BUFFER, a grpc_byte_buffer object."
   (byte-buffer :pointer))
 
-(cffi:defcfun ("grpc_call_unref" grpc-call-unref) :void
+(cffi:defcfun ("grpc_call_unref" grpc-call-unref ) :void
   "Unrefs CALL, a grpc_call object."
   (call :pointer))
 
@@ -676,15 +676,20 @@ macros and only call once."
     (unless *completion-queue*
       (error "Failed to create gRPC completion queue"))))
 
+(defun destroy-completion-queue (cq)
+  "Shuts down and destroys a gRPC completion queue CQ."
+  (when (and cq (not (cffi:null-pointer-p cq)))
+    (cffi:foreign-funcall "grpc_completion_queue_shutdown"
+                          :pointer cq)
+    (cffi:foreign-funcall "grpc_completion_queue_destroy"
+                          :pointer cq)))
+
 (defun shutdown-grpc ()
   "Shut down gRPC.
 Users should not call this directly but rather use with-grpc
 macros and only call once."
   (when *completion-queue*
-    (cffi:foreign-funcall "grpc_completion_queue_shutdown"
-                          :pointer *completion-queue*)
-    (cffi:foreign-funcall "grpc_completion_queue_destroy"
-                          :pointer *completion-queue*)
+    (destroy-completion-queue *completion-queue*)
     (setf *completion-queue* nil))
   (cffi:foreign-funcall "grpc_shutdown"))
 
@@ -698,6 +703,8 @@ macros and only call once."
   (c-call nil :type cffi:foreign-pointer)
   (c-tag nil :type cffi:foreign-pointer)
   (c-ops nil :type cffi:foreign-pointer)
+  (c-cq nil :type (or null cffi:foreign-pointer))
+  (owns-cq-p nil :type boolean)
   (method-name "" :type string)
   ;; This is a plist where the key is a keyword for a type of op
   ;; and the value is the index of that op in an op-array.
@@ -716,6 +723,11 @@ macros and only call once."
   (status-checked-p nil :type boolean)
   (context nil :type (or null context)))
 
+(defun call-completion-queue (call)
+  "Returns the completion queue bound to CALL, falling back to *COMPLETION-QUEUE*."
+  (declare (type call call))
+  (or (call-c-cq call) *completion-queue*))
+
 (defmacro with-client-stream ((call-var start-form) &body body)
   "Binds CALL-VAR to START-FORM, executes BODY, and ensures the call is closed and cleaned up."
   `(let ((,call-var ,start-form))
@@ -733,7 +745,8 @@ macros and only call once."
 (defun receive-message (call)
   "Receive a message from the client for a CALL."
   (declare (type call call))
-  (let ((c-call (call-c-call call)))
+  (let ((c-call (call-c-call call))
+        (cq (call-completion-queue call)))
     (cffi:with-foreign-objects ((tag :int)
                                 (receive-op '(:struct grpc-op)))
       (let ((ops-plist (prepare-ops receive-op :recv-message t)))
@@ -741,7 +754,7 @@ macros and only call once."
              (let ((call-code (call-start-batch c-call receive-op 1 tag)))
                (unless (eql call-code :grpc-call-ok)
                  (error 'grpc-call-error :call-error call-code))
-               (when (completion-queue-pluck *completion-queue* tag)
+               (when (completion-queue-pluck cq tag)
                  (let ((response-byte-buffer
                          (get-grpc-op-recv-message
                           receive-op (getf ops-plist :recv-message))))
@@ -760,7 +773,8 @@ macros and only call once."
                              (not (call-initial-metadata-sent-p call))
                              (or (context-metadata context) t)))
          (num-ops (if send-metadata 2 1))
-         (c-call (call-c-call call)))
+         (c-call (call-c-call call))
+         (cq (call-completion-queue call)))
     (cffi:with-foreign-objects ((tag :int)
                                 (ops '(:struct grpc-op) 2))
       (let* ((grpc-slice
@@ -774,7 +788,7 @@ macros and only call once."
              (let ((call-code (call-start-batch c-call ops num-ops tag)))
                (unless (eql call-code :grpc-call-ok)
                  (error 'grpc-call-error :call-error call-code))
-               (let ((cqp-p (completion-queue-pluck *completion-queue* tag)))
+               (let ((cqp-p (completion-queue-pluck cq tag)))
                  (when (and cqp-p (not (call-initial-metadata-sent-p call)))
                    (setf (call-initial-metadata-sent-p call) t))
                  cqp-p))
@@ -786,10 +800,11 @@ macros and only call once."
   (let* ((c-call (call-c-call call))
          (tag (call-c-tag call))
          (ops (call-c-ops call))
+         (cq (call-completion-queue call))
          (status-error nil))
     (unless (cffi:null-pointer-p ops)
       (unless (call-status-plucked-p call)
-        (completion-queue-pluck *completion-queue* tag)
+        (completion-queue-pluck cq tag)
         (setf (call-status-plucked-p call) t))
       (let ((server-status
              (recv-status-on-client-code ops (getf (call-ops-plist call) :client-recv-status))))
@@ -798,5 +813,9 @@ macros and only call once."
       (cffi:foreign-free tag)
       (grpc-ops-free ops (/ (length (call-ops-plist call)) 2)))
     (grpc-call-unref c-call)
+    (when (call-owns-cq-p call)
+      (destroy-completion-queue (call-c-cq call))
+      (setf (call-c-cq call) nil
+            (call-owns-cq-p call) nil))
     (when (and status-error (not (call-status-checked-p call)))
       (error 'grpc-call-error :call-error status-error))))

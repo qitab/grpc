@@ -128,7 +128,8 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
 (defun client-close (call)
   "Close the client side of a CALL."
   (declare (type call call))
-  (let ((c-call (call-c-call call)))
+  (let ((c-call (call-c-call call))
+        (cq (call-completion-queue call)))
     (cffi:with-foreign-objects ((tag :int)
                                 (close-op '(:struct grpc-op)))
       (let ((ops-plist (prepare-ops close-op :client-close t)))
@@ -137,7 +138,7 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
                        (let ((call-code (call-start-batch c-call close-op 1 tag)))
                          (unless (eql call-code :grpc-call-ok)
                            (error 'grpc-call-error :call-error call-code))
-                         (completion-queue-pluck *completion-queue* tag))
+                         (completion-queue-pluck cq tag))
                     (grpc-ops-clear close-op 1))))
           (unless ok (check-server-status call))
           (values))))))
@@ -146,7 +147,7 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
   "Check the server status with data from a CALL object"
   (declare (type call call))
   (unless (call-status-plucked-p call)
-    (completion-queue-pluck *completion-queue* (call-c-tag call))
+    (completion-queue-pluck (call-completion-queue call) (call-c-tag call))
     (setf (call-status-plucked-p call) t))
   (%check-server-status
    call
@@ -168,8 +169,9 @@ RECEIVE_STATUS_ON_CLIENT op and RECEIVE-STATUS-ON-CLIENT-INDEX in the ops."
   "Start a grpc call. Requires a pointer to a grpc CHANNEL object, and a SERVICE-METHOD-NAME
 string to direct the call to. TIMEOUT is the timeout for the call in seconds."
   (let* ((num-ops-for-sending-message +num-ops-for-starting-call+)
+         (cq (c-grpc-completion-queue-create-for-pluck))
          (c-call (service-method-call channel service-method-name
-                                      *completion-queue*
+                                      cq
                                       (if client-context
                                           (context-deadline client-context)
                                           -1.0d0)))
@@ -185,10 +187,14 @@ string to direct the call to. TIMEOUT is the timeout for the call in seconds."
       (unless (eql call-code :grpc-call-ok)
         (grpc-ops-free ops +num-ops-for-starting-call+)
         (cffi:foreign-free tag)
+        (grpc-call-unref c-call)
+        (destroy-completion-queue cq)
         (error 'grpc-call-error :call-error call-code)))
     (let ((call (make-call :c-call c-call
                            :c-tag tag
                            :c-ops ops
+                           :c-cq cq
+                           :owns-cq-p t
                            :ops-plist ops-plist
                            :context client-context)))
       (setf (call-initial-metadata-sent-p call) t)

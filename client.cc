@@ -12,7 +12,7 @@
 #include <cstdint>
 
 #include <grpc/byte_buffer.h>
-#include "third_party/grpc/include/grpc/byte_buffer_reader.h"  // IWYU pragma: keep
+#include <grpc/byte_buffer_reader.h>  // IWYU pragma: keep
 #include <grpc/grpc.h>
 #include <grpc/impl/grpc_types.h>
 #include <grpc/impl/propagation_bits.h>

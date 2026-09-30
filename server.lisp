@@ -43,29 +43,36 @@
   (cq-notify :pointer)
   (tag :pointer))
 
+(cffi:defcfun ("register_server_completion_queue"
+               register-server-completion-queue )
+  :void
+  (server :pointer)
+  (cq :pointer))
+
 (cffi:defcfun ("shutdown_server" shutdown-server )
   :void
   (server :pointer)
   (cq :pointer)
   (tag :pointer))
 
-(defun start-call-on-server (server)
-  "Make gRPC SERVER call and return a call struct, or NIL if the server
-is shutting down or the call request failed."
+(defun start-call-on-server (server &key (cq *completion-queue*))
+  "Make gRPC SERVER call using completion queue CQ and return a call struct,
+or NIL if the server is shutting down or the call request failed."
   (cffi:with-foreign-object (tag :int)
     (let ((metadata (create-new-grpc-metadata-array))
           (call-details (create-grpc-call-details)))
       (unwind-protect
            (let ((c-call (grpc-server-request-call server call-details
                                                    metadata
-                                                   grpc::*completion-queue*
-                                                   grpc::*completion-queue* tag)))
+                                                   cq
+                                                   cq tag)))
              (unless (cffi:null-pointer-p c-call)
                (let ((method (get-call-method call-details))
                      (metadata-list (metadata-array-to-list metadata)))
                  (grpc::make-call :c-call c-call
                                   :c-tag (cffi:null-pointer)
                                   :c-ops (cffi:null-pointer)
+                                  :c-cq cq
                                   :method-name method
                                   :ops-plist nil
                                   :is-server-call t
@@ -77,7 +84,8 @@ is shutting down or the call request failed."
   "Send the GRPC_OP_SEND_INITIAL_METADATA from the server through a CALL"
   (declare (type call call))
   (let ((num-ops 1)
-        (c-call (call-c-call call)))
+        (c-call (call-c-call call))
+        (cq (call-completion-queue call)))
     (cffi:with-foreign-objects ((tag :int)
                                 (ops '(:struct grpc-op)))
       (let ((ops-plist (prepare-ops ops :send-metadata t)))
@@ -86,7 +94,7 @@ is shutting down or the call request failed."
              (let ((call-code (call-start-batch c-call ops num-ops tag)))
                (unless (eql call-code :grpc-call-ok)
                  (error 'grpc-call-error :call-error call-code))
-               (let ((cqp-p (completion-queue-pluck *completion-queue* tag)))
+               (let ((cqp-p (completion-queue-pluck cq tag)))
                  (when cqp-p (setf (call-initial-metadata-sent-p call) t))
                  cqp-p))
           (grpc-ops-clear ops num-ops))))))
@@ -95,7 +103,8 @@ is shutting down or the call request failed."
   "Send the GRPC_OP_SEND_STATUS_FROM_SERVER from the server through a CALL"
   (declare (type call call))
   (let ((num-ops (if with-recv-close 2 1))
-        (c-call (call-c-call call)))
+        (c-call (call-c-call call))
+        (cq (call-completion-queue call)))
     (cffi:with-foreign-objects ((tag :int)
                                 (ops '(:struct grpc-op) 2))
       (let ((ops-plist (if with-recv-close
@@ -106,14 +115,15 @@ is shutting down or the call request failed."
              (let ((call-code (call-start-batch c-call ops num-ops tag)))
                (unless (eql call-code :grpc-call-ok)
                  (error 'grpc-call-error :call-error call-code))
-               (completion-queue-pluck *completion-queue* tag))
+               (completion-queue-pluck cq tag))
           (grpc-ops-clear ops num-ops))))))
 
 (defun server-recv-close (call)
   "Send the GRPC_OP_RECV_STATUS_ON_CLIENT from the server through a CALL"
   (declare (type call call))
   (let ((num-ops 1)
-        (c-call (call-c-call call)))
+        (c-call (call-c-call call))
+        (cq (call-completion-queue call)))
     (cffi:with-foreign-objects ((tag :int)
                                 (ops '(:struct grpc-op)))
       (let ((ops-plist (prepare-ops ops :server-recv-close t)))
@@ -122,7 +132,7 @@ is shutting down or the call request failed."
              (let ((call-code (call-start-batch c-call ops num-ops tag)))
                (unless (eql call-code :grpc-call-ok)
                  (error 'grpc-call-error :call-error call-code))
-               (completion-queue-pluck *completion-queue* tag))
+               (completion-queue-pluck cq tag))
           (grpc-ops-clear ops num-ops))))))
 
 (defun call-method-action (method call)
@@ -191,7 +201,11 @@ Parameters
   DISPATCH-CALL: A function to use to dispatch calls.
                  Useful for debugging."
   (let* ((server (start-server cq server-creds address))
-          threads)
+         (thread-cqs (loop repeat num-threads
+                           collect (c-grpc-completion-queue-create-for-pluck)))
+         threads)
+    (dolist (thread-cq thread-cqs)
+      (register-server-completion-queue server thread-cq))
 
     (dolist (method methods)
       (format t "~s~%" (method-details-name method))
@@ -199,16 +213,21 @@ Parameters
     (run-server server server-creds)
 
     (unwind-protect
-         (dotimes (i num-threads)
-           (push
-            (bordeaux-threads:make-thread
-             (lambda ()
-               (funcall dispatch-requests methods server))
-             :name (format nil "Dispatch Request Thread ~a" i))
-            threads))
+         (loop for i from 0
+               for thread-cq in thread-cqs
+               do (let ((bound-cq thread-cq))
+                    (push
+                     (bordeaux-threads:make-thread
+                      (lambda ()
+                        (let ((*completion-queue* bound-cq))
+                          (funcall dispatch-requests methods server)))
+                      :name (format nil "Dispatch Request Thread ~a" i))
+                     threads)))
 
       (dolist (thread threads)
         (bordeaux-threads:join-thread thread))
 
       (cffi:with-foreign-object (tag :int)
-        (shutdown-server server cq tag)))))
+        (shutdown-server server cq tag))
+      (dolist (thread-cq thread-cqs)
+        (destroy-completion-queue thread-cq)))))

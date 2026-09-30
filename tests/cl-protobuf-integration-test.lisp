@@ -293,3 +293,50 @@ Parameters
                                    expected-client-response))))
          (bordeaux-threads:join-thread thread))
     (grpc:shutdown-grpc)))
+
+(deftest test-concurrent-calls-exceeding-pluck-limit (proto-server-suite)
+  "Verify that more than GRPC_MAX_COMPLETION_QUEUE_PLUCKERS (6) concurrent
+server worker threads and concurrent client RPCs succeed."
+  (unless *google-inited*
+    ;; init
+    (setf *google-inited* t))
+  (grpc:init-grpc)
+  (unwind-protect
+       (let* ((num-concurrent 10)
+              (hostname "localhost")
+              (port-number 8009)
+              (address (format nil "~A:~D" hostname port-number))
+              (ready-sem (bordeaux-threads:make-semaphore))
+              (server-thread
+                (bordeaux-threads:make-thread
+                 (lambda ()
+                   (grpc::run-grpc-proto-server
+                    address
+                    'ut:greeter
+                    :num-threads num-concurrent
+                    :dispatch-requests
+                    (lambda (methods server)
+                      (bordeaux-threads:signal-semaphore ready-sem)
+                      (grpc::dispatch-requests methods server :exit-count 1)))))))
+         (dotimes (i num-concurrent)
+           (bordeaux-threads:wait-on-semaphore ready-sem))
+         ;; Give all 10 server threads a moment to enter grpc_completion_queue_pluck.
+         (sleep 0.1)
+         (grpc:with-insecure-channel (channel address)
+           (let* ((results (make-array num-concurrent :initial-element nil))
+                  (client-threads
+                    (loop for i below num-concurrent
+                          collect (let ((idx i))
+                                    (bordeaux-threads:make-thread
+                                     (lambda ()
+                                       (let* ((req (ut:make-hello-request :name "prolonged"))
+                                              (resp (ut-rpc:call-say-hello channel req)))
+                                         (setf (aref results idx)
+                                               (and resp (ut:hello-reply.message resp))))))))))
+             (dolist (ct client-threads)
+               (bordeaux-threads:join-thread ct))
+             (dotimes (i num-concurrent)
+               (assert-equal "prolonged Back" (aref results i)))))
+         (bordeaux-threads:join-thread server-thread))
+    (grpc:shutdown-grpc)))
+

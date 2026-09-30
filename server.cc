@@ -1,12 +1,9 @@
-#include <iostream>
-#include <optional>
 #include <string>
 
 #include <grpc/grpc.h>
-#include <grpc/grpc_security.h>
-#include <grpc/grpc_security_constants.h>
 #include <grpc/impl/slice_type.h>
-#include <grpc/status.h>
+#include <grpc/slice.h>
+#include <grpc/support/time.h>
 
 namespace lisp {
 namespace lisp_grpc {
@@ -46,10 +43,8 @@ grpc_call* lisp_grpc_server_request_call(
     return nullptr;
   }
 
-  grpc_event event = grpc_completion_queue_pluck(cq_bound_to_call,
-                                                 tag,
-                                                 gpr_inf_future(GPR_CLOCK_MONOTONIC),
-                                                 nullptr);
+  grpc_event event = grpc_completion_queue_pluck(
+      cq_for_notification, tag, gpr_inf_future(GPR_CLOCK_MONOTONIC), nullptr);
 
   if (event.success == 0)
     return nullptr;
@@ -71,13 +66,27 @@ void* register_method(grpc_server* server, const char* method_name, const char* 
                                        {}, 0);
 }
 
+void register_server_completion_queue(grpc_server* server,
+                                      grpc_completion_queue* cq) {
+  if (server == nullptr || cq == nullptr) return;
+  grpc_server_register_completion_queue(server, cq, nullptr);
+}
+
 grpc_server* start_server(grpc_completion_queue* cq,
                           grpc_server_credentials* server_creds,
                           const char* server_address) {
-  // create the server
-  grpc_server* server = grpc_server_create(nullptr, nullptr);
+  grpc_arg arg;
+  arg.type = GRPC_ARG_INTEGER;
+  arg.key = const_cast<char*>(GRPC_ARG_ALLOW_REUSEPORT);
+  arg.value.integer = 0;
+  grpc_channel_args channel_args = {1, &arg};
 
-  grpc_server_register_completion_queue(server, cq, nullptr);
+  // create the server
+  grpc_server* server = grpc_server_create(&channel_args, nullptr);
+
+  if (cq != nullptr) {
+    grpc_server_register_completion_queue(server, cq, nullptr);
+  }
 
   grpc_server_add_http2_port(server, server_address, server_creds);
 

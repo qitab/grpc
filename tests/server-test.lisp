@@ -285,3 +285,43 @@ cleanly when grpc-server-request-call returns a null call pointer."
                            (cffi:null-pointer)))
     (assert-false (grpc::start-call-on-server (cffi:null-pointer)))
     (assert-false (grpc::dispatch-requests nil (cffi:null-pointer)))))
+
+(deftest test-call-completion-queue-and-cleanup (server-suite)
+  "Validate that call operations pluck the call's dedicated completion queue
+and that free-call-data destroys the completion queue only when owns-cq-p is true."
+  (let* ((custom-cq (cffi:make-pointer 42))
+         (plucked-cqs nil)
+         (destroyed-cqs nil)
+         (call-object (grpc::make-call
+                       :c-call (cffi:null-pointer)
+                       :c-tag (cffi:null-pointer)
+                       :c-ops (cffi:null-pointer)
+                       :c-cq custom-cq
+                       :owns-cq-p t
+                       :ops-plist nil)))
+    (with-mocked-functions ((grpc::call-start-batch
+                             (c-call ops num-ops tag)
+                             (declare (ignore c-call ops num-ops tag))
+                             :grpc-call-ok)
+                            (grpc::completion-queue-pluck
+                             (completion-queue tag)
+                             (declare (ignore tag))
+                             (push completion-queue plucked-cqs)
+                             t)
+                            (grpc::grpc-call-unref
+                             (c-call)
+                             (declare (ignore c-call))
+                             nil)
+                            (grpc::destroy-completion-queue
+                             (cq)
+                             (push cq destroyed-cqs)))
+      (grpc::send-message call-object (flexi-streams:string-to-octets "hi"))
+      (grpc::server-send-status call-object :grpc-status-ok nil)
+      (grpc::free-call-data call-object))
+    (assert-eql 2 (length plucked-cqs))
+    (assert-true (every (lambda (cq) (cffi:pointer-eq cq custom-cq)) plucked-cqs))
+    (assert-eql 1 (length destroyed-cqs))
+    (assert-true (cffi:pointer-eq custom-cq (first destroyed-cqs)))
+    (assert-false (grpc::call-c-cq call-object))
+    (assert-false (grpc::call-owns-cq-p call-object))))
+

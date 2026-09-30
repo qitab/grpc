@@ -190,6 +190,8 @@ Parameters:
      :c-call (call-c-call call)
      :c-tag (call-c-tag call)
      :c-ops (call-c-ops call)
+     :c-cq (call-c-cq call)
+     :owns-cq-p (call-owns-cq-p call)
      :ops-plist (call-ops-plist call)
      :server-stream-p (proto:proto-output-streaming-p method)
      :client-stream-p (proto:proto-input-streaming-p method)
@@ -278,6 +280,7 @@ Parameters
                               :c-call (call-c-call call)
                               :c-tag (call-c-tag call)
                               :c-ops (call-c-ops call)
+                              :c-cq (call-c-cq call)
                               :ops-plist (call-ops-plist call)
                               :server-stream-p ostream-p
                               :client-stream-p istream-p
@@ -292,6 +295,7 @@ Parameters
                               :c-call (call-c-call call)
                               :c-tag (call-c-tag call)
                               :c-ops (call-c-ops call)
+                              :c-cq (call-c-cq call)
                               :ops-plist (call-ops-plist call)
                               :server-stream-p ostream-p
                               :client-stream-p istream-p
