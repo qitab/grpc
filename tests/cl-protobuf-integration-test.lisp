@@ -27,6 +27,9 @@ Parameters
                                         :signal-condition-on-fail t))
 
 (defmethod ut-rpc::say-hello ((request ut:hello-request) rpc)
+  (when (string= (ut:hello-request.name request) "abort")
+    (grpc:abort-server-stream :grpc-status-invalid-argument
+                              "Unary call aborted by client request"))
   (when (string= (ut:hello-request.name request) "prolonged")
     (sleep 1))
   (let* ((metadata (when (grpc::call-context rpc)
@@ -41,7 +44,7 @@ Parameters
                   (if is-val (format nil " ~A" is-val) "")))))
 
 
-(defun run-server (sem hostname port-number)
+(defun run-server (sem hostname port-number &key (exit-count 1))
   (grpc::run-grpc-proto-server
    (concatenate 'string
                 hostname ":"
@@ -50,7 +53,7 @@ Parameters
    :dispatch-requests
    (lambda (method server)
      (bordeaux-threads:signal-semaphore sem)
-     (grpc::dispatch-requests method server :exit-count 1))))
+     (grpc::dispatch-requests method server :exit-count exit-count))))
 
 (defvar *google-inited* nil)
 
@@ -133,12 +136,18 @@ Parameters
 ;; Streaming Server implementations
 
 (defmethod ut-rpc::say-hello-server-stream ((request ut:hello-request) call)
+  (when (string= (ut:hello-request.name request) "abort")
+    (grpc:abort-server-stream :grpc-status-permission-denied
+                              "Server stream aborted by client request"))
   (dotimes (i (ut:hello-request.num-responses request))
     (grpc:stream-send call (ut:make-hello-reply :message (format nil "Reply ~D to ~A" i (ut:hello-request.name request))))))
 
 (defmethod ut-rpc::say-hello-client-stream (call)
   (let (names)
     (grpc:do-stream-receive (req call)
+      (when (string= (ut:hello-request.name req) "abort")
+        (grpc:abort-server-stream :grpc-status-invalid-argument
+                                  "Client stream aborted by client request"))
       (push (ut:hello-request.name req) names))
     (ut:make-hello-reply :message (format nil "~{~A~^, ~}" (nreverse names)))))
 
@@ -339,4 +348,231 @@ server worker threads and concurrent client RPCs succeed."
                (assert-equal "prolonged Back" (aref results i)))))
          (bordeaux-threads:join-thread server-thread))
     (grpc:shutdown-grpc)))
+
+(deftest test-one-shot-server-streaming (proto-server-suite)
+  "Verify one-shot server-streaming via ut-rpc:call-say-hello-server-stream
+(grpc::start-call with server-stream = t) against a live server."
+  (unless *google-inited*
+    ;; init
+    (setf *google-inited* t))
+  (grpc:init-grpc)
+  (unwind-protect
+       (let* ((hostname "localhost")
+              (port-number 8010)
+              (address (format nil "~A:~D" hostname port-number))
+              (sem (bordeaux-threads:make-semaphore))
+              (thread (bordeaux-threads:make-thread
+                       (lambda () (run-server sem hostname port-number)))))
+         (bordeaux-threads:wait-on-semaphore sem)
+         (grpc:with-insecure-channel (channel address)
+           (let* ((request (ut:make-hello-request :name "Neo" :num-responses 3))
+                  (responses (ut-rpc:call-say-hello-server-stream channel request)))
+             (assert-equal '("Reply 0 to Neo" "Reply 1 to Neo" "Reply 2 to Neo")
+                           (mapcar #'ut:hello-reply.message responses))))
+         (bordeaux-threads:join-thread thread))
+    (grpc:shutdown-grpc)))
+
+(deftest test-one-shot-client-streaming (proto-server-suite)
+  "Verify one-shot client-streaming via ut-rpc:call-say-hello-client-stream
+(grpc::start-call with client-stream = t) against a live server."
+  (unless *google-inited*
+    ;; init
+    (setf *google-inited* t))
+  (grpc:init-grpc)
+  (unwind-protect
+       (let* ((hostname "localhost")
+              (port-number 8011)
+              (address (format nil "~A:~D" hostname port-number))
+              (sem (bordeaux-threads:make-semaphore))
+              (thread (bordeaux-threads:make-thread
+                       (lambda () (run-server sem hostname port-number)))))
+         (bordeaux-threads:wait-on-semaphore sem)
+         (grpc:with-insecure-channel (channel address)
+           (let* ((requests (list (ut:make-hello-request :name "Neo")
+                                  (ut:make-hello-request :name "Morpheus")
+                                  (ut:make-hello-request :name "Trinity")))
+                  (response (ut-rpc:call-say-hello-client-stream channel requests)))
+             (assert-equal "Neo, Morpheus, Trinity"
+                           (ut:hello-reply.message response))))
+         (bordeaux-threads:join-thread thread))
+    (grpc:shutdown-grpc)))
+
+(deftest test-one-shot-bidirectional-streaming (proto-server-suite)
+  "Verify one-shot bidirectional-streaming via
+ut-rpc:call-say-hello-bidirectional-stream (grpc::start-call with
+server-stream = t and client-stream = t) against a live server."
+  (unless *google-inited*
+    ;; init
+    (setf *google-inited* t))
+  (grpc:init-grpc)
+  (unwind-protect
+       (let* ((hostname "localhost")
+              (port-number 8012)
+              (address (format nil "~A:~D" hostname port-number))
+              (sem (bordeaux-threads:make-semaphore))
+              (thread (bordeaux-threads:make-thread
+                       (lambda () (run-server sem hostname port-number)))))
+         (bordeaux-threads:wait-on-semaphore sem)
+         (grpc:with-insecure-channel (channel address)
+           (let* ((requests (list (ut:make-hello-request :name "Neo" :num-responses 2)
+                                  (ut:make-hello-request :name "Trinity" :num-responses 1)))
+                  (responses (ut-rpc:call-say-hello-bidirectional-stream channel requests)))
+             (assert-equal '("Bidi 0 to Neo" "Bidi 1 to Neo" "Bidi 0 to Trinity")
+                           (mapcar #'ut:hello-reply.message responses))))
+         (bordeaux-threads:join-thread thread))
+    (grpc:shutdown-grpc)))
+
+(deftest test-client-do-stream-receive (proto-server-suite)
+  "Verify grpc:do-stream-receive on client-side streaming calls (both
+server-streaming and bidirectional-streaming) and generated stub helpers."
+  (unless *google-inited*
+    ;; init
+    (setf *google-inited* t))
+  (grpc:init-grpc)
+  (unwind-protect
+       (let* ((hostname "localhost")
+              (port-number 8013)
+              (address (format nil "~A:~D" hostname port-number))
+              (sem (bordeaux-threads:make-semaphore))
+              (thread (bordeaux-threads:make-thread
+                       (lambda () (run-server sem hostname port-number :exit-count 2)))))
+         (bordeaux-threads:wait-on-semaphore sem)
+         (grpc:with-insecure-channel (channel address)
+           ;; 1. Server-streaming using grpc:do-stream-receive on the client call
+           (grpc:with-client-stream (call (ut-rpc:say-hello-server-stream/start channel))
+             (grpc:stream-send call (ut:make-hello-request :name "StreamUser" :num-responses 3))
+             (grpc:stream-close call)
+             (let (replies)
+               (grpc:do-stream-receive (rep call)
+                 (push (ut:hello-reply.message rep) replies))
+               (assert-equal '("Reply 0 to StreamUser"
+                               "Reply 1 to StreamUser"
+                               "Reply 2 to StreamUser")
+                             (nreverse replies))))
+           ;; 2. Bidirectional-streaming using generated /start, /send, /close,
+           ;;    grpc:do-stream-receive, and /cleanup helpers
+           (let ((call (ut-rpc:say-hello-bidirectional-stream/start channel)))
+             (ut-rpc:say-hello-bidirectional-stream/send
+              call (ut:make-hello-request :name "First" :num-responses 2))
+             (ut-rpc:say-hello-bidirectional-stream/send
+              call (ut:make-hello-request :name "Second" :num-responses 1))
+             (ut-rpc:say-hello-bidirectional-stream/close call)
+             (let (replies)
+               (grpc:do-stream-receive (rep call)
+                 (push (ut:hello-reply.message rep) replies))
+               (assert-equal '("Bidi 0 to First" "Bidi 1 to First" "Bidi 0 to Second")
+                             (nreverse replies)))
+             (ut-rpc:say-hello-bidirectional-stream/cleanup call)))
+         (bordeaux-threads:join-thread thread))
+    (grpc:shutdown-grpc)))
+
+(deftest test-streaming-binary-null-bytes-payloads (proto-server-suite)
+  "Verify that binary protobuf payloads containing 0x00 bytes (leading,
+embedded, and trailing null bytes, as well as zero varints) are preserved across
+client-streaming, server-streaming, and bidirectional-streaming RPCs."
+  (unless *google-inited*
+    ;; init
+    (setf *google-inited* t))
+  (grpc:init-grpc)
+  (unwind-protect
+       (let* ((null-str-1 (format nil "~CHead~CMid~CTail~C" #\Null #\Null #\Null #\Null))
+              (null-str-2 (format nil "A~C~CB" #\Null #\Null))
+              (hostname "localhost")
+              (port-number 8014)
+              (address (format nil "~A:~D" hostname port-number))
+              (sem (bordeaux-threads:make-semaphore))
+              (thread (bordeaux-threads:make-thread
+                       (lambda () (run-server sem hostname port-number :exit-count 3)))))
+         (bordeaux-threads:wait-on-semaphore sem)
+         (grpc:with-insecure-channel (channel address)
+           ;; Ensure the serialized wire payload actually contains 0x00 bytes
+           (let ((req-with-nulls (ut:make-hello-request :name null-str-1 :num-responses 0)))
+             (assert-true (find 0 (cl-protobufs:serialize-to-bytes req-with-nulls))))
+           ;; 1. Client-streaming with 0x00 bytes
+           (let* ((requests (list (ut:make-hello-request :name null-str-1 :num-responses 0)
+                                  (ut:make-hello-request :name null-str-2 :num-responses 0)))
+                  (reply (ut-rpc:call-say-hello-client-stream channel requests)))
+             (assert-equal (format nil "~A, ~A" null-str-1 null-str-2)
+                           (ut:hello-reply.message reply)))
+           ;; 2. Server-streaming with 0x00 bytes
+           (let* ((req (ut:make-hello-request :name null-str-1 :num-responses 2))
+                  (replies (ut-rpc:call-say-hello-server-stream channel req)))
+             (assert-equal (list (format nil "Reply 0 to ~A" null-str-1)
+                                 (format nil "Reply 1 to ~A" null-str-1))
+                           (mapcar #'ut:hello-reply.message replies)))
+           ;; 3. Bidirectional-streaming with 0x00 bytes and do-stream-receive
+           (grpc:with-client-stream (call (ut-rpc:say-hello-bidirectional-stream/start channel))
+             (grpc:stream-send call (ut:make-hello-request :name null-str-1 :num-responses 1))
+             (grpc:stream-send call (ut:make-hello-request :name null-str-2 :num-responses 1))
+             (grpc:stream-close call)
+             (let (replies)
+               (grpc:do-stream-receive (rep call)
+                 (push (ut:hello-reply.message rep) replies))
+               (assert-equal (list (format nil "Bidi 0 to ~A" null-str-1)
+                                   (format nil "Bidi 0 to ~A" null-str-2))
+                             (nreverse replies)))))
+         (bordeaux-threads:join-thread thread))
+    (grpc:shutdown-grpc)))
+
+(deftest test-non-ok-status-codes (proto-server-suite)
+  "Verify that non-OK gRPC status codes are propagated and reported on
+grpc::grpc-call-error across unary, client-streaming, server-streaming, and
+bidirectional-streaming RPCs."
+  (unless *google-inited*
+    ;; init
+    (setf *google-inited* t))
+  (grpc:init-grpc)
+  (unwind-protect
+       (let* ((hostname "localhost")
+              (port-number 8015)
+              (address (format nil "~A:~D" hostname port-number))
+              (sem (bordeaux-threads:make-semaphore))
+              (thread (bordeaux-threads:make-thread
+                       (lambda () (run-server sem hostname port-number :exit-count 4)))))
+         (bordeaux-threads:wait-on-semaphore sem)
+         (grpc:with-insecure-channel (channel address)
+           ;; 1. Unary non-OK status (:grpc-status-invalid-argument)
+           (let ((status nil))
+             (handler-case
+                 (ut-rpc:call-say-hello channel (ut:make-hello-request :name "abort"))
+               (grpc::grpc-call-error (c)
+                 (setf status (grpc::call-error c))))
+             (assert-eql :grpc-status-invalid-argument status))
+           ;; 2. Client-streaming non-OK status (:grpc-status-invalid-argument)
+           (let ((status nil))
+             (handler-case
+                 (ut-rpc:call-say-hello-client-stream
+                  channel
+                  (list (ut:make-hello-request :name "Alice")
+                        (ut:make-hello-request :name "abort")))
+               (grpc::grpc-call-error (c)
+                 (setf status (grpc::call-error c))))
+             (assert-eql :grpc-status-invalid-argument status))
+           ;; 3. Server-streaming non-OK status (:grpc-status-permission-denied)
+           (let ((status nil))
+             (handler-case
+                 (ut-rpc:call-say-hello-server-stream
+                  channel
+                  (ut:make-hello-request :name "abort" :num-responses 2))
+               (grpc::grpc-call-error (c)
+                 (setf status (grpc::call-error c))))
+             (assert-eql :grpc-status-permission-denied status))
+           ;; 4. Bidirectional-streaming non-OK status with do-stream-receive
+           (let ((status nil)
+                 (received nil))
+             (handler-case
+                 (grpc:with-client-stream
+                     (call (ut-rpc:say-hello-bidirectional-stream/start channel))
+                   (grpc:stream-send call (ut:make-hello-request :name "Ok" :num-responses 1))
+                   (grpc:stream-send call (ut:make-hello-request :name "abort" :num-responses 1))
+                   (grpc:stream-close call)
+                   (grpc:do-stream-receive (rep call)
+                     (push (ut:hello-reply.message rep) received)))
+               (grpc::grpc-call-error (c)
+                 (setf status (grpc::call-error c))))
+             (assert-equal '("Bidi 0 to Ok") (nreverse received))
+             (assert-eql :grpc-status-invalid-argument status)))
+         (bordeaux-threads:join-thread thread))
+    (grpc:shutdown-grpc)))
+
 
