@@ -575,4 +575,75 @@ bidirectional-streaming RPCs."
          (bordeaux-threads:join-thread thread))
     (grpc:shutdown-grpc)))
 
+(deftest test-async-unary-and-concurrent-calls (proto-server-suite)
+  "Verify non-blocking asynchronous unary calls via :callback on generated
+cl-protobufs stubs using grpc_completion_queue_next, including concurrent
+in-flight calls, metadata, and error propagation."
+  (unless *google-inited*
+    ;; init
+    (setf *google-inited* t))
+  (grpc:init-grpc)
+  (unwind-protect
+       (let* ((num-concurrent 8)
+              (hostname "localhost")
+              (port-number 8016)
+              (address (format nil "~A:~D" hostname port-number))
+              (ready-sem (bordeaux-threads:make-semaphore))
+              (server-thread
+                (bordeaux-threads:make-thread
+                 (lambda ()
+                   (grpc::run-grpc-proto-server
+                    address
+                    'ut:greeter
+                    :num-threads num-concurrent
+                    :dispatch-requests
+                    (lambda (methods server)
+                      (bordeaux-threads:signal-semaphore ready-sem)
+                      (grpc::dispatch-requests
+                       methods server
+                       :exit-count (if (string= (bordeaux-threads:thread-name
+                                                 (bordeaux-threads:current-thread))
+                                                "Dispatch Request Thread 0")
+                                       2
+                                       1))))))))
+         (dotimes (i num-concurrent)
+           (bordeaux-threads:wait-on-semaphore ready-sem))
+         (sleep 0.1)
+         (grpc:with-insecure-channel (channel address)
+           ;; Launch num-concurrent prolonged async calls from a single thread
+           ;; without blocking on each call before starting the next.
+           (let* ((callback-results (make-array num-concurrent :initial-element nil))
+                  (calls
+                    (loop for i below num-concurrent
+                          collect (let ((idx i))
+                                    (ut-rpc:call-say-hello
+                                     channel
+                                     (ut:make-hello-request :name "prolonged")
+                                     :metadata '(("is" "Async"))
+                                     :callback
+                                     (lambda (resp)
+                                       (setf (aref callback-results idx)
+                                             (ut:hello-reply.message resp))))))))
+             (dolist (ac calls)
+               (assert-true (grpc:async-call-p ac))
+               (let ((resp (grpc:async-call-wait ac)))
+                 (assert-true (grpc:async-call-ready-p ac))
+                 (assert-equal "prolonged Back Async"
+                               (ut:hello-reply.message resp))))
+             (dotimes (i num-concurrent)
+               (assert-equal "prolonged Back Async" (aref callback-results i))))
+           ;; Also verify non-OK status propagates via async-call-wait.
+           (let ((abort-call (ut-rpc:call-say-hello
+                              channel
+                              (ut:make-hello-request :name "abort")
+                              :callback #'identity))
+                 (err-status nil))
+             (handler-case
+                 (grpc:async-call-wait abort-call)
+               (grpc::grpc-call-error (c)
+                 (setf err-status (grpc::call-error c))))
+             (assert-eql :grpc-status-invalid-argument err-status)))
+         (bordeaux-threads:join-thread server-thread))
+    (grpc:shutdown-grpc)))
+
 

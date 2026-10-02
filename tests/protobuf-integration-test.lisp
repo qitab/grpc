@@ -217,3 +217,43 @@ sent to the server and a stream of responses are returned."
                                    collect (list (cl-protobufs:serialize-to-bytes message)))))
       (let ((actual-response (grpc::start-call "channel" method request nil)))
         (assert-equalp actual-response expected-response)))))
+
+(deftest test-start-call-unary-async-rpc (protobuf-integration-suite)
+  "Validate that start-call with :callback delegates to grpc-async-call and
+deserializes the response before invoking the callback."
+  (let ((request (test-proto:make-hello-request :name "Neo"))
+        (expected-response (test-proto:make-hello-reply :message "Hello, Neo"))
+        (method (proto-impl:make-method-descriptor
+                 :service-name "Greeter"
+                 :name "SayHello"
+                 :qualified-name "lisp.grpc.test.SayHello"
+                 :output-type 'test-proto:hello-reply
+                 :output-streaming nil
+                 :input-streaming nil))
+        (qualified-method-name "/lisp.grpc.test.Greeter/SayHello")
+        (callback-response nil))
+    (with-mocked-functions ((grpc-async-call
+                             (channel
+                              service-method-name
+                              bytes-to-send
+                              client-context
+                              server-stream
+                              client-stream
+                              &key callback transform)
+                             (declare (ignore channel client-context))
+                             (assert-true (string= service-method-name qualified-method-name))
+                             (assert-equalp bytes-to-send
+                                            (cl-protobufs:serialize-to-bytes request))
+                             (assert-eq server-stream nil)
+                             (assert-eq client-stream nil)
+                             (let ((deserialized
+                                     (funcall transform
+                                              (list (cl-protobufs:serialize-to-bytes
+                                                     expected-response)))))
+                               (funcall callback deserialized)
+                               deserialized)))
+      (let ((result (grpc::start-call "channel" method request nil
+                                      :callback (lambda (resp)
+                                                  (setf callback-response resp)))))
+        (assert-equalp expected-response callback-response)
+        (assert-equalp expected-response result)))))

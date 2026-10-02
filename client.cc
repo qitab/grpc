@@ -83,6 +83,35 @@ bool lisp_grpc_completion_queue_pluck(grpc_completion_queue* cq, void* tag) {
   return event.success != 0;
 }
 
+// Polls or blocks on the completion queue 'cq' for the next completed event
+// up to 'timeout' seconds (negative for infinite timeout, 0 for non-blocking
+// poll). If the returned event is GRPC_OP_COMPLETE, stores its tag in
+// *tag_out and its success status in *success_out. Returns the
+// grpc_completion_type value as an int.
+int lisp_grpc_completion_queue_next(grpc_completion_queue* cq,
+                                    double timeout,
+                                    void** tag_out,
+                                    int* success_out) {
+  gpr_timespec deadline;
+  if (timeout < 0) {
+    deadline = gpr_inf_future(GPR_CLOCK_MONOTONIC);
+  } else if (timeout == 0) {
+    deadline = gpr_time_0(GPR_CLOCK_MONOTONIC);
+  } else {
+    deadline = gpr_time_add(
+        gpr_now(GPR_CLOCK_MONOTONIC),
+        gpr_time_from_micros((int64_t)(timeout * 1000000), GPR_TIMESPAN));
+  }
+  grpc_event event = grpc_completion_queue_next(cq, deadline, nullptr);
+  if (tag_out != nullptr) {
+    *tag_out = (event.type == GRPC_OP_COMPLETE) ? event.tag : nullptr;
+  }
+  if (success_out != nullptr) {
+    *success_out = event.success;
+  }
+  return static_cast<int>(event.type);
+}
+
 // Creates enough memory for tag
 void* new_tag(int num) {
   return new int(num);

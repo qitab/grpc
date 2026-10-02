@@ -18,6 +18,11 @@
    #:with-insecure-channel
    #:with-ssl-channel
    #:grpc-call
+   #:grpc-async-call
+   #:async-call
+   #:async-call-p
+   #:async-call-ready-p
+   #:async-call-wait
    #:check-server-status
    #:with-client-stream
    #:stream-send

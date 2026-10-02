@@ -329,3 +329,42 @@ Parameters
          (bordeaux-threads:join-thread thread))
     (grpc:shutdown-grpc)))
 
+(deftest test-async-grpc-call-integration (server-suite)
+  (ensure-google-init)
+  (grpc:init-grpc)
+  (unwind-protect
+       (let* ((expected-client-response "Hello Async Back Lyra")
+              (hostname "localhost")
+              (method-name "async-xyz")
+              (port-number 8106)
+              (sem (bordeaux-threads:make-semaphore))
+              (thread (bordeaux-threads:make-thread
+                       (lambda () (run-server sem hostname method-name
+                                              port-number)))))
+         (bordeaux-threads:wait-on-semaphore sem)
+         (grpc:with-insecure-channel
+             (channel
+              (concatenate 'string hostname ":" (write-to-string port-number)))
+           (let* ((client-context
+                    (grpc::make-context :metadata '(("my" "name")
+                                                    ("is" "Lyra"))))
+                  (callback-result nil)
+                  (async-call
+                    (grpc:grpc-call channel method-name
+                                    (flexi-streams:string-to-octets "Hello Async")
+                                    client-context
+                                    nil nil
+                                    :callback (lambda (resp)
+                                                (setf callback-result
+                                                      (flexi-streams:octets-to-string
+                                                       (car resp))))))
+                  (waited-response (grpc:async-call-wait async-call))
+                  (actual-client-response (flexi-streams:octets-to-string
+                                           (car waited-response))))
+             (assert-true (grpc:async-call-p async-call))
+             (assert-true (grpc:async-call-ready-p async-call))
+             (assert-equal expected-client-response callback-result)
+             (assert-equal expected-client-response actual-client-response)
+             (bordeaux-threads:join-thread thread))))
+    (grpc:shutdown-grpc)))
+

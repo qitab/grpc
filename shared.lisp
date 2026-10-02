@@ -21,6 +21,18 @@
 (defvar *completion-queue* nil "The global completion queue used to
 manage grpc calls.")
 
+(defvar *async-completion-queue* nil "The completion queue (created with
+grpc_completion_queue_create_for_next) used for non-blocking async calls.")
+
+(defvar *async-poller-thread* nil "Background thread polling
+*ASYNC-COMPLETION-QUEUE* via grpc_completion_queue_next.")
+
+(defvar *async-calls-lock* (bordeaux-threads:make-lock "grpc-async-calls-lock")
+  "Lock protecting *PENDING-ASYNC-CALLS* and async poller initialization.")
+
+(defvar *pending-async-calls* (make-hash-table :test #'eql)
+  "Hash table mapping foreign tag address (integer) to pending ASYNC-CALL.")
+
 (defun get-completion-queue ()
   "Returns the global completion queue, initializing it if necessary."
   (unless *completion-queue*
@@ -28,6 +40,12 @@ manage grpc calls.")
   *completion-queue*)
 
 ;; gRPC Enums
+(cffi:defcenum grpc-completion-type
+  "The type of completion (for grpc_event)."
+  :GRPC-QUEUE-SHUTDOWN
+  :GRPC-QUEUE-TIMEOUT
+  :GRPC-OP-COMPLETE)
+
 (cffi:defcenum grpc-security-level
   "Security levels of grpc transport security. It represents an inherent
 property of a backend connection and is determined by a channel credential
@@ -273,6 +291,12 @@ of operation and check the success."
   (cffi:foreign-funcall "grpc_completion_queue_create_for_pluck"
                         :pointer (cffi-sys:null-pointer) :pointer))
 
+(defun c-grpc-completion-queue-create-for-next ()
+  "Creates a completion_queue* whose events are popped via
+grpc_completion_queue_next."
+  (cffi:foreign-funcall "grpc_completion_queue_create_for_next"
+                        :pointer (cffi-sys:null-pointer) :pointer))
+
 ;; Wrapped grpc-client.cc functions
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -509,6 +533,26 @@ supplied, returns the bytes of the slice at INDEX."
   (completion-queue :pointer)
   (tag :pointer))
 
+(cffi:defcfun ("lisp_grpc_completion_queue_next" %completion-queue-next )
+  grpc-completion-type
+  (completion-queue :pointer)
+  (timeout :double)
+  (tag-out :pointer)
+  (success-out :pointer))
+
+(defun completion-queue-next (cq &optional (timeout -1.0d0))
+  "Polls or blocks on completion queue CQ using grpc_completion_queue_next.
+TIMEOUT is in seconds (negative for infinite block, 0 for non-blocking poll).
+Returns (values completion-type tag success-p)."
+  (cffi:with-foreign-objects ((tag-out :pointer)
+                              (success-out :int))
+    (let ((event-type (%completion-queue-next cq (float timeout 0.0d0) tag-out success-out)))
+      (values event-type
+              (if (eql event-type :grpc-op-complete)
+                  (cffi:mem-ref tag-out :pointer)
+                  (cffi:null-pointer))
+              (not (zerop (cffi:mem-ref success-out :int)))))))
+
 ;; Wrappers to create operations
 
 (cffi:defcfun ("lisp_grpc_op_recv_message" get-grpc-op-recv-message ) :pointer
@@ -688,6 +732,20 @@ macros and only call once."
   "Shut down gRPC.
 Users should not call this directly but rather use with-grpc
 macros and only call once."
+  (let ((async-cq nil)
+        (poller-thread nil))
+    (bordeaux-threads:with-lock-held (*async-calls-lock*)
+      (setf async-cq *async-completion-queue*
+            poller-thread *async-poller-thread*
+            *async-completion-queue* nil
+            *async-poller-thread* nil))
+    (when (and async-cq (not (cffi:null-pointer-p async-cq)))
+      (cffi:foreign-funcall "grpc_completion_queue_shutdown"
+                            :pointer async-cq)
+      (when (and poller-thread (bordeaux-threads:thread-alive-p poller-thread))
+        (bordeaux-threads:join-thread poller-thread))
+      (cffi:foreign-funcall "grpc_completion_queue_destroy"
+                            :pointer async-cq)))
   (when *completion-queue*
     (destroy-completion-queue *completion-queue*)
     (setf *completion-queue* nil))
@@ -700,9 +758,9 @@ macros and only call once."
   (metadata nil :type list))
 
 (defstruct call
-  (c-call nil :type cffi:foreign-pointer)
-  (c-tag nil :type cffi:foreign-pointer)
-  (c-ops nil :type cffi:foreign-pointer)
+  (c-call (cffi:null-pointer) :type cffi:foreign-pointer)
+  (c-tag (cffi:null-pointer) :type cffi:foreign-pointer)
+  (c-ops (cffi:null-pointer) :type cffi:foreign-pointer)
   (c-cq nil :type (or null cffi:foreign-pointer))
   (owns-cq-p nil :type boolean)
   (method-name "" :type string)
@@ -742,6 +800,16 @@ macros and only call once."
 
 ;; Shared call functions
 
+(defun extract-recv-message (ops ops-plist)
+  "Extracts the received message bytes from OPS using OPS-PLIST and destroys the
+underlying grpc_byte_buffer."
+  (let ((response-byte-buffer
+          (get-grpc-op-recv-message ops (getf ops-plist :recv-message))))
+    (unless (cffi:null-pointer-p response-byte-buffer)
+      (unwind-protect
+           (list (get-bytes-from-grpc-byte-buffer response-byte-buffer))
+        (grpc-byte-buffer-destroy response-byte-buffer)))))
+
 (defun receive-message (call)
   "Receive a message from the client for a CALL."
   (declare (type call call))
@@ -755,14 +823,7 @@ macros and only call once."
                (unless (eql call-code :grpc-call-ok)
                  (error 'grpc-call-error :call-error call-code))
                (when (completion-queue-pluck cq tag)
-                 (let ((response-byte-buffer
-                         (get-grpc-op-recv-message
-                          receive-op (getf ops-plist :recv-message))))
-                   (unless (cffi:null-pointer-p response-byte-buffer)
-                     (unwind-protect
-                          (list (get-bytes-from-grpc-byte-buffer
-                                 response-byte-buffer))
-                       (grpc-byte-buffer-destroy response-byte-buffer))))))
+                 (extract-recv-message receive-op ops-plist)))
           (grpc-ops-clear receive-op 1))))))
 
 (defun send-message (call bytes-to-send)

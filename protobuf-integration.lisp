@@ -48,12 +48,14 @@ Parameters:
     METHOD is the cl-protobuf method we wish to call.
     REQUEST is the proto message to send.
     RESPONSE is not supported.
-    CALLBACK is not currently supported.
+    CALLBACK is an optional function called with the deserialized response when
+      the call completes asynchronously; when provided, START-CALL returns an
+      ASYNC-CALL object immediately without blocking.
     TIMEOUT is the timeout for the call in seconds.
     METADATA is the metadata to send with the call."))
 
 (defmethod start-call (channel method request response &key callback (timeout -1) metadata)
-  (assert (not (or callback response)) nil "CALLBACK and RESPONSE args not supported.")
+  (assert (not response) nil "RESPONSE arg not supported.")
   (let* ((qualified-method-name (get-qualified-method-name method))
          (output-type (proto:proto-output-type method))
          (server-stream (proto:proto-output-streaming-p method))
@@ -61,18 +63,25 @@ Parameters:
          (bytes (if client-stream
                     (mapcar #'proto:serialize-to-bytes request)
                     (proto:serialize-to-bytes request)))
-         (context (make-context :metadata metadata :deadline (or timeout -1)))
-         (response (grpc-call channel qualified-method-name bytes
-                              context
-                              server-stream client-stream)))
-    (flet ((deserialize-result (bytes)
-             (when bytes
-               (proto:deserialize-from-bytes
-                output-type
-                (concatenate-byte-vectors bytes)))))
-      (if server-stream
-          (mapcar #'deserialize-result response)
-          (deserialize-result response)))))
+         (context (make-context :metadata metadata :deadline (or timeout -1))))
+    (labels ((deserialize-result (msg-bytes)
+               (when msg-bytes
+                 (proto:deserialize-from-bytes
+                  output-type
+                  (concatenate-byte-vectors msg-bytes))))
+             (deserialize-response (raw-response)
+               (if server-stream
+                   (mapcar #'deserialize-result raw-response)
+                   (deserialize-result raw-response))))
+      (if callback
+          (grpc-async-call channel qualified-method-name bytes
+                           context server-stream client-stream
+                           :callback callback
+                           :transform #'deserialize-response)
+          (deserialize-response
+           (grpc-call channel qualified-method-name bytes
+                      context
+                      server-stream client-stream))))))
 
 (defstruct (client-proto-call (:include call)))
 (defstruct (server-proto-call (:include call)))
