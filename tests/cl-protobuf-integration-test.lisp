@@ -32,8 +32,8 @@ Parameters
                               "Unary call aborted by client request"))
   (when (string= (ut:hello-request.name request) "prolonged")
     (sleep 1))
-  (let* ((metadata (when (grpc::call-context rpc)
-                     (grpc::context-metadata (grpc::call-context rpc))))
+  (let* ((metadata (when (grpc:call-context rpc)
+                     (grpc:context-metadata (grpc:call-context rpc))))
          (is-val (when metadata
                    (second (assoc "is" metadata :test #'string=)))))
     (ut:make-hello-reply
@@ -45,7 +45,7 @@ Parameters
 
 
 (defun run-server (sem hostname port-number &key (exit-count 1))
-  (grpc::run-grpc-proto-server
+  (grpc:run-grpc-proto-server
    (concatenate 'string
                 hostname ":"
                 (write-to-string port-number))
@@ -53,7 +53,7 @@ Parameters
    :dispatch-requests
    (lambda (method server)
      (bordeaux-threads:signal-semaphore sem)
-     (grpc::dispatch-requests method server :exit-count exit-count))))
+     (grpc:dispatch-requests method server :exit-count exit-count))))
 
 (defvar *google-inited* nil)
 
@@ -128,7 +128,7 @@ Parameters
                                    (write-to-string port-number)))
            ;; Unary streaming with a short timeout that will be exceeded
            (let* ((message (ut:make-hello-request :name "prolonged")))
-             (assert-condition grpc::grpc-call-error
+             (assert-condition grpc:grpc-call-error
                                (ut-rpc:call-say-hello channel message :timeout 0.1d0))))
          (bordeaux-threads:join-thread thread))
     (grpc:shutdown-grpc)))
@@ -246,7 +246,7 @@ Parameters
              (grpc:stream-send call (ut:make-hello-request :name "abort" :num-responses 1))
              (grpc:stream-close call)
              (sleep 0.5)
-             (assert-condition grpc::grpc-call-error (grpc:stream-receive call))
+             (assert-condition grpc:grpc-call-error (grpc:stream-receive call))
              (grpc:stream-cleanup call)))
          (bordeaux-threads:join-thread thread))
     (grpc:shutdown-grpc)))
@@ -319,14 +319,14 @@ server worker threads and concurrent client RPCs succeed."
               (server-thread
                 (bordeaux-threads:make-thread
                  (lambda ()
-                   (grpc::run-grpc-proto-server
+                   (grpc:run-grpc-proto-server
                     address
                     'ut:greeter
                     :num-threads num-concurrent
                     :dispatch-requests
                     (lambda (methods server)
                       (bordeaux-threads:signal-semaphore ready-sem)
-                      (grpc::dispatch-requests methods server :exit-count 1)))))))
+                      (grpc:dispatch-requests methods server :exit-count 1)))))))
          (dotimes (i num-concurrent)
            (bordeaux-threads:wait-on-semaphore ready-sem))
          ;; Give all 10 server threads a moment to enter grpc_completion_queue_pluck.
@@ -516,7 +516,7 @@ client-streaming, server-streaming, and bidirectional-streaming RPCs."
 
 (deftest test-non-ok-status-codes (proto-server-suite)
   "Verify that non-OK gRPC status codes are propagated and reported on
-grpc::grpc-call-error across unary, client-streaming, server-streaming, and
+grpc:grpc-call-error across unary, client-streaming, server-streaming, and
 bidirectional-streaming RPCs."
   (unless *google-inited*
     ;; init
@@ -535,8 +535,8 @@ bidirectional-streaming RPCs."
            (let ((status nil))
              (handler-case
                  (ut-rpc:call-say-hello channel (ut:make-hello-request :name "abort"))
-               (grpc::grpc-call-error (c)
-                 (setf status (grpc::call-error c))))
+               (grpc:grpc-call-error (c)
+                 (setf status (grpc:call-error c))))
              (assert-eql :grpc-status-invalid-argument status))
            ;; 2. Client-streaming non-OK status (:grpc-status-invalid-argument)
            (let ((status nil))
@@ -545,8 +545,8 @@ bidirectional-streaming RPCs."
                   channel
                   (list (ut:make-hello-request :name "Alice")
                         (ut:make-hello-request :name "abort")))
-               (grpc::grpc-call-error (c)
-                 (setf status (grpc::call-error c))))
+               (grpc:grpc-call-error (c)
+                 (setf status (grpc:call-error c))))
              (assert-eql :grpc-status-invalid-argument status))
            ;; 3. Server-streaming non-OK status (:grpc-status-permission-denied)
            (let ((status nil))
@@ -554,8 +554,8 @@ bidirectional-streaming RPCs."
                  (ut-rpc:call-say-hello-server-stream
                   channel
                   (ut:make-hello-request :name "abort" :num-responses 2))
-               (grpc::grpc-call-error (c)
-                 (setf status (grpc::call-error c))))
+               (grpc:grpc-call-error (c)
+                 (setf status (grpc:call-error c))))
              (assert-eql :grpc-status-permission-denied status))
            ;; 4. Bidirectional-streaming non-OK status with do-stream-receive
            (let ((status nil)
@@ -568,8 +568,8 @@ bidirectional-streaming RPCs."
                    (grpc:stream-close call)
                    (grpc:do-stream-receive (rep call)
                      (push (ut:hello-reply.message rep) received)))
-               (grpc::grpc-call-error (c)
-                 (setf status (grpc::call-error c))))
+               (grpc:grpc-call-error (c)
+                 (setf status (grpc:call-error c))))
              (assert-equal '("Bidi 0 to Ok") (nreverse received))
              (assert-eql :grpc-status-invalid-argument status)))
          (bordeaux-threads:join-thread thread))
@@ -592,14 +592,14 @@ in-flight calls, metadata, and error propagation."
               (server-thread
                 (bordeaux-threads:make-thread
                  (lambda ()
-                   (grpc::run-grpc-proto-server
+                   (grpc:run-grpc-proto-server
                     address
                     'ut:greeter
                     :num-threads num-concurrent
                     :dispatch-requests
                     (lambda (methods server)
                       (bordeaux-threads:signal-semaphore ready-sem)
-                      (grpc::dispatch-requests
+                      (grpc:dispatch-requests
                        methods server
                        :exit-count (if (string= (bordeaux-threads:thread-name
                                                  (bordeaux-threads:current-thread))
@@ -640,8 +640,8 @@ in-flight calls, metadata, and error propagation."
                  (err-status nil))
              (handler-case
                  (grpc:async-call-wait abort-call)
-               (grpc::grpc-call-error (c)
-                 (setf err-status (grpc::call-error c))))
+               (grpc:grpc-call-error (c)
+                 (setf err-status (grpc:call-error c))))
              (assert-eql :grpc-status-invalid-argument err-status)))
          (bordeaux-threads:join-thread server-thread))
     (grpc:shutdown-grpc)))

@@ -71,7 +71,7 @@ grpc_byte_buffer*."
   "Creates a gRPC insecure channel to ADDRESS. Binds the channel to BOUND-CHANNEL, runs BODY,
 and returns its values. After the body has run, the channel is destroyed."
   (let ((creds (gensym "CREDS")))
-    `(let* ((,creds (grpc::grpc-insecure-credentials-create))
+    `(let* ((,creds (grpc-insecure-credentials-create))
             (,bound-channel (create-channel ,address ,creds)))
        (unwind-protect (progn ,@body)
          (grpc-credentials-release ,creds)

@@ -40,15 +40,15 @@ server-recv-close, receive-message methods properly handle the scenario
                              (c-call ops num-ops tag)
                              (declare (ignore c-call ops num-ops tag))
                              :grpc-call-error))
-      (assert-condition grpc::grpc-call-error
+      (assert-condition grpc:grpc-call-error
                         (grpc::send-initial-metadata call-object))
-      (assert-condition grpc::grpc-call-error
+      (assert-condition grpc:grpc-call-error
                         (grpc::send-message call-object text-result))
-      (assert-condition grpc::grpc-call-error
+      (assert-condition grpc:grpc-call-error
                         (grpc::server-send-status call-object))
-      (assert-condition grpc::grpc-call-error
+      (assert-condition grpc:grpc-call-error
                         (grpc::server-recv-close call-object))
-      (assert-condition grpc::grpc-call-error
+      (assert-condition grpc:grpc-call-error
                         (grpc::receive-message call-object)))))
 
 (deftest test-server-return-true-success (server-suite)
@@ -161,7 +161,7 @@ preserve embedded and leading null (0x00) bytes without truncating."
                              (ops size)
                              (incf ops-clear-count)
                              (funcall orig-ops-clear ops size)))
-      (assert-condition grpc::grpc-call-error
+      (assert-condition grpc:grpc-call-error
                         (grpc::client-close call-object))
       (assert-eql 2 ops-clear-count))))
 
@@ -233,7 +233,7 @@ has not yet been sent on a call with context, and 1 op on subsequent sends."
                        :c-tag (cffi:null-pointer)
                        :c-ops (cffi:null-pointer)
                        :ops-plist nil
-                       :context (grpc::make-context :metadata '(("x-key" "x-val")))
+                       :context (grpc:make-context :metadata '(("x-key" "x-val")))
                        :initial-metadata-sent-p nil))
          (bytes (flexi-streams:string-to-octets "hello"))
          (batch-num-ops nil)
@@ -284,7 +284,7 @@ cleanly when grpc-server-request-call returns a null call pointer."
                            (declare (ignore server details metadata cq-bound cq-notify tag))
                            (cffi:null-pointer)))
     (assert-false (grpc::start-call-on-server (cffi:null-pointer)))
-    (assert-false (grpc::dispatch-requests nil (cffi:null-pointer)))))
+    (assert-false (grpc:dispatch-requests nil (cffi:null-pointer)))))
 
 (deftest test-call-completion-queue-and-cleanup (server-suite)
   "Validate that call operations pluck the call's dedicated completion queue

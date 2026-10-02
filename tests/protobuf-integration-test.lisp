@@ -99,7 +99,7 @@ the server and a single response is returned."
     (with-mocked-functions ((grpc::start-grpc-call
                              (channel service-method-name client-context)
                              (declare (ignore channel service-method-name))
-                             (setf captured-deadline (grpc::context-deadline client-context))
+                             (setf captured-deadline (grpc:context-deadline client-context))
                              (grpc::make-call :c-call (cffi:null-pointer)
                                               :c-tag (cffi:null-pointer)
                                               :c-ops (cffi:null-pointer))))

@@ -24,12 +24,12 @@ Parameters
                                   :signal-condition-on-fail t))
 
 (defun run-server (sem hostname method-name port-number)
-  (grpc::run-grpc-server
+  (grpc:run-grpc-server
    (concatenate 'string
                 hostname ":"
                 (write-to-string port-number))
    (list
-    (grpc::make-method-details
+    (grpc:make-method-details
      :name method-name
      :serializer #'flexi-streams:string-to-octets
      :deserializer
@@ -40,8 +40,8 @@ Parameters
         :utf-8))
      :action
      (lambda (message call)
-       (let* ((metadata (when (grpc::call-context call)
-                          (grpc::context-metadata (grpc::call-context call))))
+       (let* ((metadata (when (grpc:call-context call)
+                          (grpc:context-metadata (grpc:call-context call))))
               (is-val (when metadata
                         (second (assoc "is" metadata :test #'string=)))))
          (format t "~% response: ~A ~%" message)
@@ -52,7 +52,7 @@ Parameters
    :dispatch-requests
    (lambda (method server)
      (bordeaux-threads:signal-semaphore sem)
-     (grpc::dispatch-requests method server :exit-count 1))))
+     (grpc:dispatch-requests method server :exit-count 1))))
 
 (defvar *google-inited* nil)
 
@@ -78,8 +78,8 @@ Parameters
              (channel
               (concatenate 'string hostname ":" (write-to-string port-number)))
            (let* ((client-context
-                   (grpc::make-context :metadata '(("my" "name")
-                                                   ("is" "Lyra"))))
+                   (grpc:make-context :metadata '(("my" "name")
+                                                  ("is" "Lyra"))))
                   (message "Hello World")
                   (response (grpc:grpc-call channel method-name
                                             (flexi-streams:string-to-octets message)
@@ -103,10 +103,10 @@ Parameters
               (thread
                 (bordeaux-threads:make-thread
                  (lambda ()
-                   (grpc::run-grpc-server
+                   (grpc:run-grpc-server
                     address
                     (list
-                     (grpc::make-method-details
+                     (grpc:make-method-details
                       :name method-name
                       :input-streaming-p t
                       :output-streaming-p nil
@@ -125,7 +125,7 @@ Parameters
                     :dispatch-requests
                     (lambda (methods server)
                       (bordeaux-threads:signal-semaphore sem)
-                      (grpc::dispatch-requests methods server :exit-count 1)))))))
+                      (grpc:dispatch-requests methods server :exit-count 1)))))))
          (bordeaux-threads:wait-on-semaphore sem)
          (grpc:with-insecure-channel (channel address)
            (let* ((requests (mapcar #'flexi-streams:string-to-octets
@@ -150,10 +150,10 @@ Parameters
               (thread
                 (bordeaux-threads:make-thread
                  (lambda ()
-                   (grpc::run-grpc-server
+                   (grpc:run-grpc-server
                     address
                     (list
-                     (grpc::make-method-details
+                     (grpc:make-method-details
                       :name method-name
                       :input-streaming-p nil
                       :output-streaming-p t
@@ -171,7 +171,7 @@ Parameters
                     :dispatch-requests
                     (lambda (methods server)
                       (bordeaux-threads:signal-semaphore sem)
-                      (grpc::dispatch-requests methods server :exit-count 1)))))))
+                      (grpc:dispatch-requests methods server :exit-count 1)))))))
          (bordeaux-threads:wait-on-semaphore sem)
          (grpc:with-insecure-channel (channel address)
            (let* ((responses (grpc:grpc-call channel method-name
@@ -198,10 +198,10 @@ Parameters
               (thread
                 (bordeaux-threads:make-thread
                  (lambda ()
-                   (grpc::run-grpc-server
+                   (grpc:run-grpc-server
                     address
                     (list
-                     (grpc::make-method-details
+                     (grpc:make-method-details
                       :name method-name
                       :input-streaming-p t
                       :output-streaming-p t
@@ -222,7 +222,7 @@ Parameters
                     :dispatch-requests
                     (lambda (methods server)
                       (bordeaux-threads:signal-semaphore sem)
-                      (grpc::dispatch-requests methods server :exit-count 1)))))))
+                      (grpc:dispatch-requests methods server :exit-count 1)))))))
          (bordeaux-threads:wait-on-semaphore sem)
          (grpc:with-insecure-channel (channel address)
            (let* ((requests (mapcar #'flexi-streams:string-to-octets '("ReqA" "ReqB")))
@@ -253,10 +253,10 @@ Parameters
               (thread
                 (bordeaux-threads:make-thread
                  (lambda ()
-                   (grpc::run-grpc-server
+                   (grpc:run-grpc-server
                     address
                     (list
-                     (grpc::make-method-details
+                     (grpc:make-method-details
                       :name method-name
                       :serializer #'identity
                       :deserializer #'identity
@@ -267,7 +267,7 @@ Parameters
                     :dispatch-requests
                     (lambda (methods server)
                       (bordeaux-threads:signal-semaphore sem)
-                      (grpc::dispatch-requests methods server :exit-count 1)))))))
+                      (grpc:dispatch-requests methods server :exit-count 1)))))))
          (bordeaux-threads:wait-on-semaphore sem)
          (grpc:with-insecure-channel (channel address)
            (let* ((response (grpc:grpc-call channel method-name payload nil nil nil))
@@ -288,10 +288,10 @@ Parameters
               (thread
                 (bordeaux-threads:make-thread
                  (lambda ()
-                   (grpc::run-grpc-server
+                   (grpc:run-grpc-server
                     address
                     (list
-                     (grpc::make-method-details
+                     (grpc:make-method-details
                       :name method-name
                       :serializer #'flexi-streams:string-to-octets
                       :deserializer
@@ -307,7 +307,7 @@ Parameters
                     :dispatch-requests
                     (lambda (methods server)
                       (bordeaux-threads:signal-semaphore sem)
-                      (grpc::dispatch-requests methods server :exit-count 2)))))))
+                      (grpc:dispatch-requests methods server :exit-count 2)))))))
          (bordeaux-threads:wait-on-semaphore sem)
          (grpc:with-insecure-channel (channel address)
            (let ((err-status nil))
@@ -315,16 +315,16 @@ Parameters
                  (grpc:grpc-call channel method-name
                                  (flexi-streams:string-to-octets "abort")
                                  nil nil nil)
-               (grpc::grpc-call-error (c)
-                 (setf err-status (grpc::call-error c))))
+               (grpc:grpc-call-error (c)
+                 (setf err-status (grpc:call-error c))))
              (assert-eql :grpc-status-invalid-argument err-status))
            (let ((unimpl-status nil))
              (handler-case
                  (grpc:grpc-call channel "unregistered-method"
                                  (flexi-streams:string-to-octets "hello")
                                  nil nil nil)
-               (grpc::grpc-call-error (c)
-                 (setf unimpl-status (grpc::call-error c))))
+               (grpc:grpc-call-error (c)
+                 (setf unimpl-status (grpc:call-error c))))
              (assert-eql :grpc-status-unimplemented unimpl-status)))
          (bordeaux-threads:join-thread thread))
     (grpc:shutdown-grpc)))
@@ -346,8 +346,8 @@ Parameters
              (channel
               (concatenate 'string hostname ":" (write-to-string port-number)))
            (let* ((client-context
-                    (grpc::make-context :metadata '(("my" "name")
-                                                    ("is" "Lyra"))))
+                    (grpc:make-context :metadata '(("my" "name")
+                                                   ("is" "Lyra"))))
                   (callback-result nil)
                   (async-call
                     (grpc:grpc-call channel method-name

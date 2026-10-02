@@ -69,7 +69,7 @@ takes `server-stream` and `client-stream` arguments which state whether the mess
 should use server or client side streaming as discussed in
 [Types of Services](#types-of-services).
 It also accepts a `client-context` argument, which can be `nil` or a context
-object created with `(grpc::make-context :metadata metadata :deadline deadline)`.
+object created with `(grpc:make-context :metadata metadata :deadline deadline)`.
 Metadata must be passed in as an alist of strings.
 Example: `'(("key1" "value1") ("key2" "value2"))`.
 

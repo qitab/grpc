@@ -257,7 +257,7 @@ Parameters:
                               &key
                               (server-creds
                                (grpc-insecure-server-credentials-create))
-                              (cq grpc::*completion-queue*)
+                              (cq *completion-queue*)
                               (num-threads 1)
                               (dispatch-requests #'dispatch-requests))
   "Start a gRPC server using protocol buffers.
@@ -267,8 +267,8 @@ Parameters
   SERVER-CREDS: Pointer to the gRPC server credentials.
   CQ: The completion queue to use.
   NUM-THREADS: The number of threads to have running.
-  DISPATCH-CALL: A function to use to dispatch calls.
-                 Useful for debugging."
+  DISPATCH-REQUESTS: A function to use to dispatch calls.
+                     Useful for debugging."
   (let* ((service (proto:find-service-descriptor service-name))
          method-details-list)
     (dolist (method (proto:proto-methods service))
@@ -322,6 +322,3 @@ Parameters
                      :cq cq
                      :num-threads num-threads
                      :dispatch-requests dispatch-requests)))
-
-(cl:export '(run-grpc-proto-server stream-send stream-receive stream-close
-             stream-cleanup do-stream-receive grpc-server-abort abort-server-stream))

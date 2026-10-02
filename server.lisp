@@ -69,14 +69,14 @@ or NIL if the server is shutting down or the call request failed."
              (unless (cffi:null-pointer-p c-call)
                (let ((method (get-call-method call-details))
                      (metadata-list (metadata-array-to-list metadata)))
-                 (grpc::make-call :c-call c-call
-                                  :c-tag (cffi:null-pointer)
-                                  :c-ops (cffi:null-pointer)
-                                  :c-cq cq
-                                  :method-name method
-                                  :ops-plist nil
-                                  :is-server-call t
-                                  :context (make-context :metadata metadata-list)))))
+                 (make-call :c-call c-call
+                            :c-tag (cffi:null-pointer)
+                            :c-ops (cffi:null-pointer)
+                            :c-cq cq
+                            :method-name method
+                            :ops-plist nil
+                            :is-server-call t
+                            :context (make-context :metadata metadata-list)))))
         (metadata-destroy metadata)
         (call-details-destroy call-details)))))
 
@@ -188,7 +188,7 @@ can receive a call."
                         &key
                         (server-creds
                          (grpc-insecure-server-credentials-create))
-                        (cq grpc::*completion-queue*)
+                        (cq *completion-queue*)
                         (num-threads 1)
                         (dispatch-requests #'dispatch-requests))
   "Start a gRPC server.
@@ -198,8 +198,8 @@ Parameters
   SERVER-CREDS: Pointer to the gRPC server credentials.
   CQ: The completion queue to use.
   NUM-THREADS: The number of threads to have running.
-  DISPATCH-CALL: A function to use to dispatch calls.
-                 Useful for debugging."
+  DISPATCH-REQUESTS: A function to use to dispatch calls.
+                     Useful for debugging."
   (let* ((server (start-server cq server-creds address))
          (thread-cqs (loop repeat num-threads
                            collect (c-grpc-completion-queue-create-for-pluck)))
