@@ -12,9 +12,34 @@
 (define-condition grpc-call-error (error)
   ((call-error :initarg :call-error
                :initform nil
-               :accessor call-error))
+               :accessor call-error)
+   (status-message :initarg :status-message
+                   :initform nil
+                   :accessor call-error-status-message))
   (:report (lambda (condition stream)
-             (format stream "GRPC CALL ERROR: ~A.~&" (call-error condition)))))
+             (if (and (call-error-status-message condition)
+                      (plusp (length (call-error-status-message condition))))
+                 (format stream "GRPC CALL ERROR: ~A (~A).~&"
+                         (call-error condition)
+                         (call-error-status-message condition))
+                 (format stream "GRPC CALL ERROR: ~A.~&"
+                         (call-error condition))))))
+
+(define-condition grpc-server-abort (error)
+  ((status-code :initarg :status-code
+                :initform :grpc-status-unknown
+                :accessor abort-status-code)
+   (status-message :initarg :status-message
+                   :initform ""
+                   :accessor abort-status-message))
+  (:report (lambda (condition stream)
+             (format stream "gRPC Server Abort: ~A (~A)"
+                     (abort-status-message condition)
+                     (abort-status-code condition)))))
+
+(defun abort-server-stream (status-code &optional (status-message ""))
+  "Aborts a server call with STATUS-CODE and STATUS-MESSAGE."
+  (error 'grpc-server-abort :status-code status-code :status-message status-message))
 
 ;; Globals
 
@@ -348,6 +373,23 @@ before freeing ops."
   (ops :pointer)
   (index :int))
 
+(cffi:defcfun ("lisp_grpc_op_get_status_details" %recv-status-on-client-details )
+  :pointer
+  (ops :pointer)
+  (index :int))
+
+(defun recv-status-on-client-details (ops index)
+  "Returns the status details string from the GRPC_OP_RECV_STATUS_ON_CLIENT op
+at INDEX in OPS, or NIL if no status details were provided."
+  (when index
+    (let ((slice (%recv-status-on-client-details ops index)))
+      (when (and slice (not (cffi:null-pointer-p slice)))
+        (let ((len (grpc-slice-length slice)))
+          (when (plusp len)
+            (cffi:foreign-string-to-lisp (grpc-slice-start-ptr slice)
+                                         :count len
+                                         :encoding :utf-8)))))))
+
 (cffi:defcfun ("convert_string_to_grpc_slice" convert-string-to-grpc-slice)
   :pointer
   (str :string))
@@ -633,15 +675,17 @@ to the server."
                         :int flag
                         :void))
 
-(defun make-send-status-from-server-op (op &key metadata count status flag index)
+(defun make-send-status-from-server-op (op &key metadata count status status-details flag index)
   "Sets OP[INDEX] to a Send Status from server operation by adding metadata
-METADATA, the server STATUS, the count of metadata COUNT, and the flag FLAG."
+METADATA, the server STATUS, optional STATUS-DETAILS string, the count of
+metadata COUNT, and the flag FLAG."
   (cffi:foreign-funcall "lisp_grpc_make_send_status_from_server_op"
                         :pointer op
                         :int index
                         :pointer metadata
                         :int count
                         grpc-status-code status
+                        :string (or status-details (cffi:null-pointer))
                         :int flag
                         :void))
 
@@ -660,11 +704,13 @@ and the flag FLAG"
                     &key
                     send-metadata send-message client-close
                     client-recv-status recv-metadata
-                    recv-message server-recv-close server-send-status)
+                    recv-message server-recv-close
+                    server-send-status server-send-status-details)
   "Prepares OPS to send MESSAGE to the server. The keys SEND-METADATA
 SEND-MESSAGE CLIENT-CLOSE CLIENT-RECV-STATUS RECV-METADATA RECV-MESSAGE
-SERVER-RECV-CLOSE SERVER-SEND-STATUS are all different types of ops that the user may
-want. Returns a plist containing keys being the op type and values being the index."
+SERVER-RECV-CLOSE SERVER-SEND-STATUS SERVER-SEND-STATUS-DETAILS are all different
+types of ops that the user may want. Returns a plist containing keys being the op
+type and values being the index."
   (let ((cur-index -1)
         ops-plist)
     (flet ((next-marker (message-type)
@@ -687,7 +733,13 @@ want. Returns a plist containing keys being the op type and values being the ind
         (make-recv-close-on-server-op ops :cancelled (cffi:foreign-alloc :int)
                                           :flag 0 :index (next-marker :server-close)))
       (when server-send-status
-        (make-send-status-from-server-op ops :metadata (cffi:null-pointer) :count 0 :status server-send-status :flag 0 :index (next-marker :server-send-status))))
+        (make-send-status-from-server-op ops
+                                         :metadata (cffi:null-pointer)
+                                         :count 0
+                                         :status server-send-status
+                                         :status-details server-send-status-details
+                                         :flag 0
+                                         :index (next-marker :server-send-status))))
     ops-plist))
 
 ;; Conversion, deletion functions
@@ -862,15 +914,17 @@ underlying grpc_byte_buffer."
          (tag (call-c-tag call))
          (ops (call-c-ops call))
          (cq (call-completion-queue call))
-         (status-error nil))
+         (status-error nil)
+         (status-details nil))
     (unless (cffi:null-pointer-p ops)
       (unless (call-status-plucked-p call)
         (completion-queue-pluck cq tag)
         (setf (call-status-plucked-p call) t))
-      (let ((server-status
-             (recv-status-on-client-code ops (getf (call-ops-plist call) :client-recv-status))))
+      (let* ((status-index (getf (call-ops-plist call) :client-recv-status))
+             (server-status (recv-status-on-client-code ops status-index)))
         (unless (eql server-status :grpc-status-ok)
-          (setf status-error server-status)))
+          (setf status-error server-status
+                status-details (recv-status-on-client-details ops status-index))))
       (cffi:foreign-free tag)
       (grpc-ops-free ops (/ (length (call-ops-plist call)) 2)))
     (grpc-call-unref c-call)
@@ -879,4 +933,6 @@ underlying grpc_byte_buffer."
       (setf (call-c-cq call) nil
             (call-owns-cq-p call) nil))
     (when (and status-error (not (call-status-checked-p call)))
-      (error 'grpc-call-error :call-error status-error))))
+      (error 'grpc-call-error
+             :call-error status-error
+             :status-message status-details))))

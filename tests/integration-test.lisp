@@ -310,14 +310,17 @@ Parameters
                       (grpc:dispatch-requests methods server :exit-count 2)))))))
          (bordeaux-threads:wait-on-semaphore sem)
          (grpc:with-insecure-channel (channel address)
-           (let ((err-status nil))
+           (let ((err-status nil)
+                 (err-message nil))
              (handler-case
                  (grpc:grpc-call channel method-name
                                  (flexi-streams:string-to-octets "abort")
                                  nil nil nil)
                (grpc:grpc-call-error (c)
-                 (setf err-status (grpc:call-error c))))
-             (assert-eql :grpc-status-invalid-argument err-status))
+                 (setf err-status (grpc:call-error c)
+                       err-message (grpc:call-error-status-message c))))
+             (assert-eql :grpc-status-invalid-argument err-status)
+             (assert-equal "Invalid argument" err-message))
            (let ((unimpl-status nil))
              (handler-case
                  (grpc:grpc-call channel "unregistered-method"

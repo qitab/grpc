@@ -174,6 +174,10 @@ void grpc_ops_clear(grpc_op* ops, int size) {
     }
     if (ops[i].op == GRPC_OP_SEND_STATUS_FROM_SERVER) {
       delete[] ops[i].data.send_status_from_server.trailing_metadata;
+      if (ops[i].data.send_status_from_server.status_details != nullptr) {
+        grpc_slice_unref(*ops[i].data.send_status_from_server.status_details);
+        delete ops[i].data.send_status_from_server.status_details;
+      }
     }
     if (ops[i].op == GRPC_OP_RECV_CLOSE_ON_SERVER) {
       free(ops[i].data.recv_close_on_server.cancelled);
@@ -319,24 +323,6 @@ grpc_slice* lisp_grpc_op_get_status_details(grpc_op* ops, int index) {
 }
 
 // Takes in a preallocated grpc_op array.
-// Stores the given trailing_metadata, metadata_count, status, and flags, for
-// the GRPC_OP_SEND_STATUS_FROM_SERVER operation.
-void lisp_grpc_server_make_send_status_op(grpc_op* op,
-                                          int index,
-                                          grpc_metadata* trailing_metadata,
-                                          uint32_t metadata_count,
-                                          grpc_status_code status,
-                                          uint32_t flags) {
-  op[index].op = GRPC_OP_SEND_STATUS_FROM_SERVER;
-  op[index].data.send_status_from_server.trailing_metadata = trailing_metadata;
-  op[index].data.send_status_from_server.status = status;
-  op[index].data.send_status_from_server.trailing_metadata_count =
-      metadata_count;
-  op[index].flags = flags;
-  op[index].reserved = nullptr;
-}
-
-// Takes in a preallocated grpc_op array.
 // Stores the given metadata, cancelled and flags for the
 // GRPC_OP_RECV_CLOSE_ON_SERVER operation.
 void lisp_grpc_server_make_close_op(grpc_op* op, int index, int* cancelled,
@@ -351,13 +337,14 @@ void lisp_grpc_server_make_close_op(grpc_op* op, int index, int* cancelled,
 grpc_slice* convert_string_to_grpc_slice(const char* str);
 
 // Takes in a preallocated grpc_op array.
-// Stores the given metadata, flags, and count for the
+// Stores the given metadata, status, status_details, flags, and count for the
 // GRPC_OP_SEND_STATUS_FROM_SERVER operation.
 void lisp_grpc_make_send_status_from_server_op(grpc_op* op,
                                                int index,
                                                grpc_metadata* trailing_metadata,
                                                uint32_t metadata_count,
                                                grpc_status_code status,
+                                               const char* status_details,
                                                uint32_t flags) {
   memset(&op[index], 0, sizeof(grpc_op));
   op[index].op = GRPC_OP_SEND_STATUS_FROM_SERVER;
@@ -365,7 +352,10 @@ void lisp_grpc_make_send_status_from_server_op(grpc_op* op,
   op[index].data.send_status_from_server.trailing_metadata_count =
       metadata_count;
   op[index].data.send_status_from_server.status = status;
-  op[index].data.send_status_from_server.status_details = nullptr;
+  op[index].data.send_status_from_server.status_details =
+      (status_details != nullptr && status_details[0] != '\0')
+          ? convert_string_to_grpc_slice(status_details)
+          : nullptr;
   op[index].flags = flags;
   op[index].reserved = nullptr;
 }

@@ -282,7 +282,7 @@ To abort a server streaming call early with a non-OK gRPC status code (e.g., `NO
 ```lisp
 (grpc:abort-server-stream :grpc-status-not-found "Requested resource is unavailable")
 ```
-gRPC will catch this condition and automatically transmit the specified status code and message to the client.
+gRPC will catch this condition and automatically transmit the specified status code and message to the client, where they can be inspected on the signaled `grpc:grpc-call-error` condition via `grpc:call-error` and `grpc:call-error-status-message`.
 
 To start the server, use `run-grpc-proto-server`:
 

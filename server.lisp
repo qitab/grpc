@@ -99,7 +99,9 @@ or NIL if the server is shutting down or the call request failed."
                  cqp-p))
           (grpc-ops-clear ops num-ops))))))
 
-(defun server-send-status (call &optional (status-code :grpc-status-ok) (with-recv-close nil))
+(defun server-send-status (call &optional (status-code :grpc-status-ok)
+                                          (with-recv-close nil)
+                                          (status-details nil))
   "Send the GRPC_OP_SEND_STATUS_FROM_SERVER from the server through a CALL"
   (declare (type call call))
   (let ((num-ops (if with-recv-close 2 1))
@@ -108,8 +110,13 @@ or NIL if the server is shutting down or the call request failed."
     (cffi:with-foreign-objects ((tag :int)
                                 (ops '(:struct grpc-op) 2))
       (let ((ops-plist (if with-recv-close
-                           (prepare-ops ops :server-recv-close t :server-send-status status-code)
-                           (prepare-ops ops :server-send-status status-code))))
+                           (prepare-ops ops
+                                        :server-recv-close t
+                                        :server-send-status status-code
+                                        :server-send-status-details status-details)
+                           (prepare-ops ops
+                                        :server-send-status status-code
+                                        :server-send-status-details status-details))))
         (declare (ignore ops-plist))
         (unwind-protect
              (let ((call-code (call-start-batch c-call ops num-ops tag)))
@@ -165,10 +172,10 @@ can receive a call."
                               :test #'string=
                               :key #'method-details-name)))
             (send-initial-metadata call)
-            (flet ((finish-call (status-code &optional input-streaming-p)
+            (flet ((finish-call (status-code &optional input-streaming-p status-message)
                      (unless (call-server-send-status-p call)
                        (setf (call-server-send-status-p call) t)
-                       (server-send-status call status-code input-streaming-p))
+                       (server-send-status call status-code input-streaming-p status-message))
                      (unless input-streaming-p
                        (server-recv-close call))))
               (if method
@@ -180,7 +187,9 @@ can receive a call."
                                                         response)))
                           (finish-call :grpc-status-ok input-streaming-p))
                       (grpc-server-abort (condition)
-                        (finish-call (abort-status-code condition) input-streaming-p))))
+                        (finish-call (abort-status-code condition)
+                                     input-streaming-p
+                                     (abort-status-message condition)))))
                   (finish-call :grpc-status-unimplemented))))
        (free-call-data call))))
 

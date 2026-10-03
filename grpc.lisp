@@ -42,6 +42,8 @@
    #:run-grpc-proto-server
    #:dispatch-requests
    #:grpc-server-abort
+   #:abort-status-code
+   #:abort-status-message
    #:abort-server-stream
    #:grpc-insecure-server-credentials-create
    #:method-details
@@ -58,4 +60,5 @@
    ;; Conditions
    #:grpc-call-error
    #:proto-call-error
-   #:call-error))
+   #:call-error
+   #:call-error-status-message))

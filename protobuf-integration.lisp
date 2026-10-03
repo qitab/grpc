@@ -86,22 +86,6 @@ Parameters:
 (defstruct (client-proto-call (:include call)))
 (defstruct (server-proto-call (:include call)))
 
-(define-condition grpc-server-abort (error)
-  ((status-code :initarg :status-code
-                :initform :grpc-status-unknown
-                :accessor abort-status-code)
-   (status-message :initarg :status-message
-                   :initform ""
-                   :accessor abort-status-message))
-  (:report (lambda (condition stream)
-             (format stream "gRPC Server Abort: ~A (~A)"
-                     (abort-status-message condition)
-                     (abort-status-code condition)))))
-
-(defun abort-server-stream (status-code &optional (status-message ""))
-  "Aborts a server streaming call with STATUS-CODE and STATUS-MESSAGE."
-  (error 'grpc-server-abort :status-code status-code :status-message status-message))
-
 (defgeneric stream-send (call message)
   (:documentation "Sends a Protobuf message over a streaming CALL (client or server)."))
 

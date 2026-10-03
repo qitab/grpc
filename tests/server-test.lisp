@@ -211,19 +211,23 @@ crashing or corrupting memory."
     (grpc::grpc-byte-buffer-destroy buf-from-bytes)))
 
 (deftest test-prepare-and-free-ops-with-metadata (server-suite)
-  "Validate that prepare-ops with send-metadata, send-message, and
-client-recv-status can be freed cleanly by grpc-ops-free."
+  "Validate that prepare-ops with send-metadata, send-message,
+client-recv-status, and server-send-status-details can be freed cleanly by
+grpc-ops-free."
   (let* ((bytes (flexi-streams:string-to-octets "payload"))
          (buf (grpc::convert-bytes-to-grpc-byte-buffer bytes))
-         (ops (grpc::create-new-grpc-ops 3))
+         (ops (grpc::create-new-grpc-ops 4))
          (plist (grpc::prepare-ops ops
                                    :send-metadata '(("k1" "v1") ("k2" "v2"))
                                    :send-message buf
-                                   :client-recv-status t)))
+                                   :client-recv-status t
+                                   :server-send-status :grpc-status-invalid-argument
+                                   :server-send-status-details "bad argument")))
     (assert-eql 0 (getf plist :send-metadata))
     (assert-eql 1 (getf plist :send-message))
     (assert-eql 2 (getf plist :client-recv-status))
-    (grpc::grpc-ops-free ops 3)))
+    (assert-eql 3 (getf plist :server-send-status))
+    (grpc::grpc-ops-free ops 4)))
 
 (deftest test-send-message-with-initial-metadata (server-suite)
   "Validate that send-message allocates and passes 2 ops when initial metadata

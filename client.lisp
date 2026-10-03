@@ -158,10 +158,14 @@ Allows the gRPC secure channel to be used in a memory-safe and concise manner."
   "Verify the server status is :grpc-status-ok. Requires the OPS containing the
 RECEIVE_STATUS_ON_CLIENT op and RECEIVE-STATUS-ON-CLIENT-INDEX in the ops."
   (let ((server-status
-          (recv-status-on-client-code ops receive-status-on-client-index)))
+          (recv-status-on-client-code ops receive-status-on-client-index))
+        (status-details
+          (recv-status-on-client-details ops receive-status-on-client-index)))
     (setf (call-status-checked-p call) t)
     (unless (eql server-status :grpc-status-ok)
-      (error 'grpc-call-error :call-error server-status))))
+      (error 'grpc-call-error
+             :call-error server-status
+             :status-message status-details))))
 
 (defconstant +num-ops-for-starting-call+ 3)
 

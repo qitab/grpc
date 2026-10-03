@@ -532,33 +532,43 @@ bidirectional-streaming RPCs."
          (bordeaux-threads:wait-on-semaphore sem)
          (grpc:with-insecure-channel (channel address)
            ;; 1. Unary non-OK status (:grpc-status-invalid-argument)
-           (let ((status nil))
+           (let ((status nil)
+                 (status-msg nil))
              (handler-case
                  (ut-rpc:call-say-hello channel (ut:make-hello-request :name "abort"))
                (grpc:grpc-call-error (c)
-                 (setf status (grpc:call-error c))))
-             (assert-eql :grpc-status-invalid-argument status))
+                 (setf status (grpc:call-error c)
+                       status-msg (grpc:call-error-status-message c))))
+             (assert-eql :grpc-status-invalid-argument status)
+             (assert-equal "Unary call aborted by client request" status-msg))
            ;; 2. Client-streaming non-OK status (:grpc-status-invalid-argument)
-           (let ((status nil))
+           (let ((status nil)
+                 (status-msg nil))
              (handler-case
                  (ut-rpc:call-say-hello-client-stream
                   channel
                   (list (ut:make-hello-request :name "Alice")
                         (ut:make-hello-request :name "abort")))
                (grpc:grpc-call-error (c)
-                 (setf status (grpc:call-error c))))
-             (assert-eql :grpc-status-invalid-argument status))
+                 (setf status (grpc:call-error c)
+                       status-msg (grpc:call-error-status-message c))))
+             (assert-eql :grpc-status-invalid-argument status)
+             (assert-equal "Client stream aborted by client request" status-msg))
            ;; 3. Server-streaming non-OK status (:grpc-status-permission-denied)
-           (let ((status nil))
+           (let ((status nil)
+                 (status-msg nil))
              (handler-case
                  (ut-rpc:call-say-hello-server-stream
                   channel
                   (ut:make-hello-request :name "abort" :num-responses 2))
                (grpc:grpc-call-error (c)
-                 (setf status (grpc:call-error c))))
-             (assert-eql :grpc-status-permission-denied status))
+                 (setf status (grpc:call-error c)
+                       status-msg (grpc:call-error-status-message c))))
+             (assert-eql :grpc-status-permission-denied status)
+             (assert-equal "Server stream aborted by client request" status-msg))
            ;; 4. Bidirectional-streaming non-OK status with do-stream-receive
            (let ((status nil)
+                 (status-msg nil)
                  (received nil))
              (handler-case
                  (grpc:with-client-stream
@@ -569,9 +579,11 @@ bidirectional-streaming RPCs."
                    (grpc:do-stream-receive (rep call)
                      (push (ut:hello-reply.message rep) received)))
                (grpc:grpc-call-error (c)
-                 (setf status (grpc:call-error c))))
+                 (setf status (grpc:call-error c)
+                       status-msg (grpc:call-error-status-message c))))
              (assert-equal '("Bidi 0 to Ok") (nreverse received))
-             (assert-eql :grpc-status-invalid-argument status)))
+             (assert-eql :grpc-status-invalid-argument status)
+             (assert-equal "Stream aborted by client request" status-msg)))
          (bordeaux-threads:join-thread thread))
     (grpc:shutdown-grpc)))
 
@@ -632,17 +644,20 @@ in-flight calls, metadata, and error propagation."
                                (ut:hello-reply.message resp))))
              (dotimes (i num-concurrent)
                (assert-equal "prolonged Back Async" (aref callback-results i))))
-           ;; Also verify non-OK status propagates via async-call-wait.
+           ;; Also verify non-OK status and status message propagate via async-call-wait.
            (let ((abort-call (ut-rpc:call-say-hello
                               channel
                               (ut:make-hello-request :name "abort")
                               :callback #'identity))
-                 (err-status nil))
+                 (err-status nil)
+                 (err-msg nil))
              (handler-case
                  (grpc:async-call-wait abort-call)
                (grpc:grpc-call-error (c)
-                 (setf err-status (grpc:call-error c))))
-             (assert-eql :grpc-status-invalid-argument err-status)))
+                 (setf err-status (grpc:call-error c)
+                       err-msg (grpc:call-error-status-message c))))
+             (assert-eql :grpc-status-invalid-argument err-status)
+             (assert-equal "Unary call aborted by client request" err-msg)))
          (bordeaux-threads:join-thread server-thread))
     (grpc:shutdown-grpc)))
 
