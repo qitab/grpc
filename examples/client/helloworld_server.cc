@@ -9,10 +9,10 @@
 #include <memory>
 #include <sstream>
 
-#include <absl/flags/parse.h>
 #include <absl/flags/flag.h>
 #include <absl/strings/ascii.h>
 #include <absl/strings/str_cat.h>
+#include "third_party/gloop/base/init_google.h"
 #include <grpc/grpc.h>
 #include <grpcpp/security/server_credentials.h>
 #include <grpcpp/server.h>
