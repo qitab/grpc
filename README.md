@@ -287,8 +287,11 @@ gRPC will catch this condition and automatically transmit the specified status c
 To start the server, use `run-grpc-proto-server`:
 
 ```lisp
-(grpc:run-grpc-proto-server "localhost:8080" 'cl-protobufs.testing:greeter)
+(grpc:run-grpc-proto-server "localhost:8080" 'cl-protobufs.testing:greeter
+                            :num-threads 16)
 ```
+
+`:num-threads` sets the maximum number of worker threads in the server's default thread pool (default `*default-thread-pool-size*`, which is `16`). You can also pass `:thread-pool` (a `grpc:thread-pool` instance created with `grpc:make-thread-pool`, or `nil` to run handlers synchronously on the acceptor threads) and `:num-acceptors` (the number of acceptor threads calling `grpc_server_request_call`, default `1`).
 
 #### Example
 

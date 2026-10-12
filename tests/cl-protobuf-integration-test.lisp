@@ -322,7 +322,7 @@ server worker threads and concurrent client RPCs succeed."
                    (grpc:run-grpc-proto-server
                     address
                     'ut:greeter
-                    :num-threads num-concurrent
+                    :num-acceptors num-concurrent
                     :dispatch-requests
                     (lambda (methods server)
                       (bordeaux-threads:signal-semaphore ready-sem)
@@ -607,7 +607,7 @@ in-flight calls, metadata, and error propagation."
                    (grpc:run-grpc-proto-server
                     address
                     'ut:greeter
-                    :num-threads num-concurrent
+                    :num-acceptors num-concurrent
                     :dispatch-requests
                     (lambda (methods server)
                       (bordeaux-threads:signal-semaphore ready-sem)
@@ -713,5 +713,55 @@ execute on the client worker thread pool."
                            (mapcar #'ut:hello-reply.message stream-replies))
              (assert-equal '("Reply 0 to Stream" "Reply 1 to Stream")
                            stream-callback-messages)))
+         (bordeaux-threads:join-thread server-thread))
+    (grpc:shutdown-grpc)))
+
+(deftest test-single-acceptor-thread-pool-concurrency (proto-server-suite)
+  "Verify that a server with a single acceptor thread (:num-acceptors 1) and a
+worker thread pool (:num-threads 8) executes multiple prolonged RPCs
+concurrently rather than blocking call acceptance on each RPC handler."
+  (unless *google-inited*
+    ;; init
+    (setf *google-inited* t))
+  (grpc:init-grpc)
+  (unwind-protect
+       (let* ((num-concurrent 8)
+              (hostname "localhost")
+              (port-number 8018)
+              (address (format nil "~A:~D" hostname port-number))
+              (ready-sem (bordeaux-threads:make-semaphore))
+              (server-thread
+                (bordeaux-threads:make-thread
+                 (lambda ()
+                   (grpc:run-grpc-proto-server
+                    address
+                    'ut:greeter
+                    :num-acceptors 1
+                    :num-threads num-concurrent
+                    :dispatch-requests
+                    (lambda (methods server)
+                      (bordeaux-threads:signal-semaphore ready-sem)
+                      (grpc:dispatch-requests methods server
+                                              :exit-count num-concurrent)))))))
+         (bordeaux-threads:wait-on-semaphore ready-sem)
+         (grpc:with-insecure-channel (channel address)
+           (let* ((start-internal-time (get-internal-real-time))
+                  (calls
+                    (loop repeat num-concurrent
+                          collect (ut-rpc:call-say-hello
+                                   channel
+                                   (ut:make-hello-request :name "prolonged")
+                                   :callback #'identity))))
+             (dolist (ac calls)
+               (let ((resp (grpc:async-call-wait ac)))
+                 (assert-equal "prolonged Back"
+                               (ut:hello-reply.message resp))))
+             (let ((elapsed-seconds
+                     (/ (- (get-internal-real-time) start-internal-time)
+                        (float internal-time-units-per-second 1.0d0))))
+               ;; Each prolonged call sleeps 1s; sequential execution on 1
+               ;; acceptor thread would take >= 8s, whereas 8 worker threads
+               ;; complete in ~1s.
+               (assert-true (< elapsed-seconds 5.0d0)))))
          (bordeaux-threads:join-thread server-thread))
     (grpc:shutdown-grpc)))

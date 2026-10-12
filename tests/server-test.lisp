@@ -282,13 +282,25 @@ numbers of slices without hitting CALL-ARGUMENTS-LIMIT."
 
 (deftest test-start-call-on-server-null-call (server-suite)
   "Validate that start-call-on-server returns nil and dispatch-requests exits
-cleanly when grpc-server-request-call returns a null call pointer."
-  (with-mocked-functions ((grpc::grpc-server-request-call
-                           (server details metadata cq-bound cq-notify tag)
-                           (declare (ignore server details metadata cq-bound cq-notify tag))
-                           (cffi:null-pointer)))
-    (assert-false (grpc::start-call-on-server (cffi:null-pointer)))
-    (assert-false (grpc:dispatch-requests nil (cffi:null-pointer)))))
+cleanly when grpc-server-request-call returns a null call pointer, and that any
+per-call completion queue acquired via :use-call-cq is released."
+  (let ((released-cqs nil)
+        (call-cq (cffi:make-pointer 77)))
+    (with-mocked-functions ((grpc::grpc-server-request-call
+                             (server details metadata cq-bound cq-notify tag)
+                             (declare (ignore server details metadata cq-bound cq-notify tag))
+                             (cffi:null-pointer))
+                            (grpc::acquire-pluck-cq
+                             ()
+                             call-cq)
+                            (grpc::release-pluck-cq
+                             (cq)
+                             (push cq released-cqs)))
+      (assert-false (grpc::start-call-on-server (cffi:null-pointer)))
+      (assert-false (grpc::start-call-on-server (cffi:null-pointer) :use-call-cq t))
+      (assert-eql 1 (length released-cqs))
+      (assert-true (cffi:pointer-eq call-cq (first released-cqs)))
+      (assert-false (grpc:dispatch-requests nil (cffi:null-pointer))))))
 
 (deftest test-call-completion-queue-and-cleanup (server-suite)
   "Validate that call operations pluck the call's dedicated completion queue
@@ -416,3 +428,32 @@ and rejects tasks submitted after shutdown."
            (grpc:shutdown-thread-pool pool :wait-p t)
            (assert-false (grpc:thread-pool-submit pool (lambda () nil))))
       (grpc:shutdown-thread-pool pool :wait-p nil))))
+
+(deftest test-resolve-server-thread-pool (server-suite)
+  "Validate that resolve-server-thread-pool handles :default with num-threads,
+an explicit thread-pool instance, and nil."
+  (multiple-value-bind (pool owns-p)
+      (grpc::resolve-server-thread-pool :default 4)
+    (unwind-protect
+         (progn
+           (assert-true (grpc:thread-pool-p pool))
+           (assert-true owns-p)
+           (assert-eql 4 (grpc::thread-pool-max-threads pool)))
+      (when pool
+        (grpc:shutdown-thread-pool pool :wait-p t))))
+  (let ((custom-pool (grpc:make-thread-pool :max-threads 3)))
+    (unwind-protect
+         (multiple-value-bind (pool owns-p)
+             (grpc::resolve-server-thread-pool custom-pool 8)
+           (assert-eql custom-pool pool)
+           (assert-false owns-p))
+      (grpc:shutdown-thread-pool custom-pool :wait-p t)))
+  (multiple-value-bind (pool owns-p)
+      (grpc::resolve-server-thread-pool nil 8)
+    (assert-false pool)
+    (assert-false owns-p))
+  (multiple-value-bind (pool owns-p)
+      (grpc::resolve-server-thread-pool :default nil)
+    (assert-false pool)
+    (assert-false owns-p)))
+

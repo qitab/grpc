@@ -242,7 +242,9 @@ Parameters:
                               (server-creds
                                (grpc-insecure-server-credentials-create))
                               (cq *completion-queue*)
-                              (num-threads 1)
+                              (num-threads *default-thread-pool-size*)
+                              (num-acceptors 1)
+                              (thread-pool :default)
                               (dispatch-requests #'dispatch-requests))
   "Start a gRPC server using protocol buffers.
 Parameters
@@ -250,7 +252,12 @@ Parameters
   SERVICE-NAME: The symbol naming the service to run.
   SERVER-CREDS: Pointer to the gRPC server credentials.
   CQ: The completion queue to use.
-  NUM-THREADS: The number of threads to have running.
+  NUM-THREADS: Maximum number of worker threads in the default server thread
+               pool (defaults to *DEFAULT-THREAD-POOL-SIZE*).
+  NUM-ACCEPTORS: The number of acceptor threads calling dispatch-requests.
+  THREAD-POOL: Worker thread pool configuration (:DEFAULT to create a pool of
+               size NUM-THREADS, a THREAD-POOL instance, or NIL to run
+               handlers synchronously on the acceptor threads).
   DISPATCH-REQUESTS: A function to use to dispatch calls.
                      Useful for debugging."
   (let* ((service (proto:find-service-descriptor service-name))
@@ -305,4 +312,6 @@ Parameters
                      :server-creds server-creds
                      :cq cq
                      :num-threads num-threads
+                     :num-acceptors num-acceptors
+                     :thread-pool thread-pool
                      :dispatch-requests dispatch-requests)))

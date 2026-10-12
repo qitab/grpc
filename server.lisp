@@ -55,28 +55,40 @@
   (cq :pointer)
   (tag :pointer))
 
-(defun start-call-on-server (server &key (cq *completion-queue*))
-  "Make gRPC SERVER call using completion queue CQ and return a call struct,
-or NIL if the server is shutting down or the call request failed."
+(defvar *server-thread-pool* nil
+  "Current server worker thread pool used by DISPATCH-REQUESTS when non-nil.")
+
+(defun start-call-on-server (server &key (cq *completion-queue*) (use-call-cq nil))
+  "Make gRPC SERVER call using completion queue CQ for notification and return
+a call struct, or NIL if the server is shutting down or the call request failed.
+When USE-CALL-CQ is true, binds the call to a dedicated pooled completion queue
+so call operations can execute concurrently with subsequent calls on CQ."
   (cffi:with-foreign-object (tag :int)
     (let ((metadata (create-new-grpc-metadata-array))
-          (call-details (create-grpc-call-details)))
+          (call-details (create-grpc-call-details))
+          (call-cq (if use-call-cq (acquire-pluck-cq) cq))
+          (call nil))
       (unwind-protect
            (let ((c-call (grpc-server-request-call server call-details
                                                    metadata
-                                                   cq
+                                                   call-cq
                                                    cq tag)))
              (unless (cffi:null-pointer-p c-call)
                (let ((method (get-call-method call-details))
                      (metadata-list (metadata-array-to-list metadata)))
-                 (make-call :c-call c-call
-                            :c-tag (cffi:null-pointer)
-                            :c-ops (cffi:null-pointer)
-                            :c-cq cq
-                            :method-name method
-                            :ops-plist nil
-                            :is-server-call t
-                            :context (make-context :metadata metadata-list)))))
+                 (setf call
+                       (make-call :c-call c-call
+                                  :c-tag (cffi:null-pointer)
+                                  :c-ops (cffi:null-pointer)
+                                  :c-cq call-cq
+                                  :owns-cq-p (not (null use-call-cq))
+                                  :method-name method
+                                  :ops-plist nil
+                                  :is-server-call t
+                                  :context (make-context :metadata metadata-list)))
+                 call)))
+        (when (and use-call-cq (null call))
+          (release-pluck-cq call-cq))
         (metadata-destroy metadata)
         (call-details-destroy call-details)))))
 
@@ -155,50 +167,85 @@ for non-input-streaming methods."
              (deserialized-message (funcall (method-details-deserializer method) message)))
         (funcall (method-details-action method) deserialized-message call))))
 
-(defun dispatch-requests (methods server &key (exit-count nil))
+(defun handle-server-call (call methods)
+  "Executes the method handler in METHODS matching CALL, sends the response
+and status, and frees CALL's C resources."
+  (unwind-protect
+       (let ((method (find (call-method-name call)
+                           methods
+                           :test #'string=
+                           :key #'method-details-name)))
+         (send-initial-metadata call)
+         (flet ((finish-call (status-code &optional input-streaming-p status-message)
+                  (unless (call-server-send-status-p call)
+                    (setf (call-server-send-status-p call) t)
+                    (server-send-status call status-code input-streaming-p status-message))
+                  (unless input-streaming-p
+                    (server-recv-close call))))
+           (if method
+               (let ((input-streaming-p (method-details-input-streaming-p method)))
+                 (handler-case
+                     (let ((response (call-method-action method call)))
+                       (unless (method-details-output-streaming-p method)
+                         (send-message call (funcall (method-details-serializer method)
+                                                     response)))
+                       (finish-call :grpc-status-ok input-streaming-p))
+                   (grpc-server-abort (condition)
+                     (finish-call (abort-status-code condition)
+                                  input-streaming-p
+                                  (abort-status-message condition)))))
+               (finish-call :grpc-status-unimplemented))))
+    (free-call-data call)))
+
+(defun dispatch-requests (methods server &key (exit-count nil)
+                                              (thread-pool *server-thread-pool*))
   "Block on the SERVER for a call then dispatch the call to the
 proper method in METHODS based on the call method name. EXIT-COUNT
 allows the caller to specify the number of times dispatch-call
-can receive a call."
+can receive a call. When THREAD-POOL is a THREAD-POOL instance, each
+accepted call is bound to its own pooled completion queue and executed
+asynchronously on THREAD-POOL."
   (loop for calls-received from 0
         while (or (not exit-count)
                   (< calls-received exit-count))
-        for call = (start-call-on-server server)
+        for call = (start-call-on-server server
+                                         :use-call-cq (not (null thread-pool)))
         while call
-        do
-     (unwind-protect
-          (let ((method (find (call-method-name call)
-                              methods
-                              :test #'string=
-                              :key #'method-details-name)))
-            (send-initial-metadata call)
-            (flet ((finish-call (status-code &optional input-streaming-p status-message)
-                     (unless (call-server-send-status-p call)
-                       (setf (call-server-send-status-p call) t)
-                       (server-send-status call status-code input-streaming-p status-message))
-                     (unless input-streaming-p
-                       (server-recv-close call))))
-              (if method
-                  (let ((input-streaming-p (method-details-input-streaming-p method)))
-                    (handler-case
-                        (let ((response (call-method-action method call)))
-                          (unless (method-details-output-streaming-p method)
-                            (send-message call (funcall (method-details-serializer method)
-                                                        response)))
-                          (finish-call :grpc-status-ok input-streaming-p))
-                      (grpc-server-abort (condition)
-                        (finish-call (abort-status-code condition)
-                                     input-streaming-p
-                                     (abort-status-message condition)))))
-                  (finish-call :grpc-status-unimplemented))))
-       (free-call-data call))))
+        do (if thread-pool
+               (let ((accepted-call call))
+                 (unless (thread-pool-submit
+                          thread-pool
+                          (lambda ()
+                            (handle-server-call accepted-call methods)))
+                   (free-call-data accepted-call)))
+               (handle-server-call call methods))))
+
+(defun resolve-server-thread-pool (thread-pool num-threads)
+  "Resolves THREAD-POOL (:DEFAULT, a THREAD-POOL instance, or NIL) and
+NUM-THREADS (the maximum number of worker threads when THREAD-POOL is :DEFAULT)
+and returns (VALUES POOL OWNS-POOL-P)."
+  (etypecase thread-pool
+    (null
+     (values nil nil))
+    ((eql :default)
+     (etypecase num-threads
+       (null
+        (values nil nil))
+       ((integer 1 *)
+        (values (make-thread-pool :name "gRPC Server Worker"
+                                  :max-threads num-threads)
+                t))))
+    (thread-pool
+     (values thread-pool nil))))
 
 (defun run-grpc-server (address methods
                         &key
                         (server-creds
                          (grpc-insecure-server-credentials-create))
                         (cq *completion-queue*)
-                        (num-threads 1)
+                        (num-threads *default-thread-pool-size*)
+                        (num-acceptors 1)
+                        (thread-pool :default)
                         (dispatch-requests #'dispatch-requests))
   "Start a gRPC server.
 Parameters
@@ -206,37 +253,56 @@ Parameters
   METHODS: The methods to start. Should be a list of method-details.
   SERVER-CREDS: Pointer to the gRPC server credentials.
   CQ: The completion queue to use.
-  NUM-THREADS: The number of threads to have running.
+  NUM-THREADS: Maximum number of worker threads in the default server thread
+               pool (defaults to *DEFAULT-THREAD-POOL-SIZE*).
+  NUM-ACCEPTORS: The number of acceptor threads calling dispatch-requests.
+  THREAD-POOL: Worker thread pool configuration (:DEFAULT to create a pool of
+               size NUM-THREADS, a THREAD-POOL instance, or NIL to run
+               handlers synchronously on the acceptor threads).
   DISPATCH-REQUESTS: A function to use to dispatch calls.
                      Useful for debugging."
-  (let* ((server (start-server cq server-creds address))
-         (thread-cqs (loop repeat num-threads
-                           collect (c-grpc-completion-queue-create-for-pluck)))
-         threads)
-    (dolist (thread-cq thread-cqs)
-      (register-server-completion-queue server thread-cq))
+  (multiple-value-bind (worker-pool owns-pool-p)
+      (resolve-server-thread-pool thread-pool num-threads)
+    (let* ((server (start-server cq server-creds address))
+           (thread-cqs (loop repeat num-acceptors
+                             collect (c-grpc-completion-queue-create-for-pluck)))
+           threads)
+      (unwind-protect
+           (progn
+             (dolist (thread-cq thread-cqs)
+               (register-server-completion-queue server thread-cq))
 
-    (dolist (method methods)
-      (format t "~s~%" (method-details-name method))
-      (register-method server (method-details-name method) address))
-    (run-server server server-creds)
+             (dolist (method methods)
+               (format t "~s~%" (method-details-name method))
+               (register-method server (method-details-name method) address))
+             (run-server server server-creds)
 
-    (unwind-protect
-         (loop for i from 0
-               for thread-cq in thread-cqs
-               do (let ((bound-cq thread-cq))
-                    (push
-                     (bordeaux-threads:make-thread
-                      (lambda ()
-                        (let ((*completion-queue* bound-cq))
-                          (funcall dispatch-requests methods server)))
-                      :name (format nil "Dispatch Request Thread ~a" i))
-                     threads)))
-
-      (dolist (thread threads)
-        (bordeaux-threads:join-thread thread))
-
-      (cffi:with-foreign-object (tag :int)
-        (shutdown-server server cq tag))
-      (dolist (thread-cq thread-cqs)
-        (destroy-completion-queue thread-cq)))))
+             (loop for i from 0
+                   for thread-cq in thread-cqs
+                   do (let ((bound-cq thread-cq))
+                        (push
+                         (bordeaux-threads:make-thread
+                          (lambda ()
+                            (let ((*completion-queue* bound-cq)
+                                  (*server-thread-pool* worker-pool))
+                              (funcall dispatch-requests methods server)))
+                          :name (format nil "Dispatch Request Thread ~a" i))
+                         threads)))
+             (loop while threads
+                   for thread = (pop threads)
+                   do (bordeaux-threads:join-thread thread))
+             (when worker-pool
+               (if owns-pool-p
+                   (shutdown-thread-pool worker-pool :wait-p t)
+                   (wait-for-thread-pool worker-pool))))
+        (when owns-pool-p
+          (shutdown-thread-pool worker-pool :wait-p nil))
+        (cffi:with-foreign-object (tag :int)
+          (shutdown-server server cq tag))
+        (dolist (thread threads)
+          (when (bordeaux-threads:thread-alive-p thread)
+            (bordeaux-threads:join-thread thread)))
+        (when owns-pool-p
+          (shutdown-thread-pool worker-pool :wait-p t))
+        (dolist (thread-cq thread-cqs)
+          (destroy-completion-queue thread-cq))))))
