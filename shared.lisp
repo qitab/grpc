@@ -58,6 +58,9 @@ grpc_completion_queue_create_for_next) used for non-blocking async calls.")
 (defvar *pending-async-calls* (make-hash-table :test #'eql)
   "Hash table mapping foreign tag address (integer) to pending ASYNC-CALL.")
 
+(defvar *client-thread-pool* nil
+  "Shared worker thread pool for client async callbacks and streaming RPCs.")
+
 (defun get-completion-queue ()
   "Returns the global completion queue, initializing it if necessary."
   (unless *completion-queue*
@@ -818,6 +821,16 @@ new one if the pool is empty."
     (dolist (cq cqs)
       (destroy-completion-queue cq))))
 
+(defun ensure-client-thread-pool ()
+  "Returns *CLIENT-THREAD-POOL*, creating it if necessary."
+  (bordeaux-threads:with-lock-held (*async-calls-lock*)
+    (when (or (null *client-thread-pool*)
+              (thread-pool-shutdown-p *client-thread-pool*))
+      (setf *client-thread-pool*
+            (make-thread-pool :name "gRPC Client Worker"
+                              :max-threads *default-thread-pool-size*)))
+    *client-thread-pool*))
+
 (defun shutdown-grpc ()
   "Shut down gRPC.
 Users should not call this directly but rather use with-grpc
@@ -836,6 +849,12 @@ macros and only call once."
         (bordeaux-threads:join-thread poller-thread))
       (cffi:foreign-funcall "grpc_completion_queue_destroy"
                             :pointer async-cq)))
+  (let ((client-pool nil))
+    (bordeaux-threads:with-lock-held (*async-calls-lock*)
+      (setf client-pool *client-thread-pool*
+            *client-thread-pool* nil))
+    (when client-pool
+      (shutdown-thread-pool client-pool :wait-p t)))
   (let ((cq *completion-queue*))
     (setf *completion-queue* nil)
     (when cq

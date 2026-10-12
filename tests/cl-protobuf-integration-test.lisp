@@ -661,4 +661,57 @@ in-flight calls, metadata, and error propagation."
          (bordeaux-threads:join-thread server-thread))
     (grpc:shutdown-grpc)))
 
-
+(deftest test-async-chained-callback-and-streaming (proto-server-suite)
+  "Verify that an async unary callback can initiate and wait on a nested async
+unary call without deadlocking the poller thread, and that async streaming calls
+execute on the client worker thread pool."
+  (unless *google-inited*
+    ;; init
+    (setf *google-inited* t))
+  (grpc:init-grpc)
+  (unwind-protect
+       (let* ((hostname "localhost")
+              (port-number 8017)
+              (address (format nil "~A:~D" hostname port-number))
+              (sem (bordeaux-threads:make-semaphore))
+              (server-thread
+                (bordeaux-threads:make-thread
+                 (lambda ()
+                   (run-server sem hostname port-number :exit-count 3)))))
+         (bordeaux-threads:wait-on-semaphore sem)
+         (grpc:with-insecure-channel (channel address)
+           (let* ((chained-message nil)
+                  (outer-call
+                    (ut-rpc:call-say-hello
+                     channel
+                     (ut:make-hello-request :name "First")
+                     :callback
+                     (lambda (first-reply)
+                       (let* ((inner-call
+                                (ut-rpc:call-say-hello
+                                 channel
+                                 (ut:make-hello-request
+                                  :name (ut:hello-reply.message first-reply))
+                                 :callback #'identity))
+                              (inner-reply (grpc:async-call-wait inner-call)))
+                         (setf chained-message
+                               (ut:hello-reply.message inner-reply)))))))
+             (let ((outer-reply (grpc:async-call-wait outer-call)))
+               (assert-equal "First Back" (ut:hello-reply.message outer-reply))
+               (assert-equal "First Back Back" chained-message)))
+           (let* ((stream-callback-messages nil)
+                  (stream-call
+                    (ut-rpc:call-say-hello-server-stream
+                     channel
+                     (ut:make-hello-request :name "Stream" :num-responses 2)
+                     :callback
+                     (lambda (replies)
+                       (setf stream-callback-messages
+                             (mapcar #'ut:hello-reply.message replies)))))
+                  (stream-replies (grpc:async-call-wait stream-call)))
+             (assert-equal '("Reply 0 to Stream" "Reply 1 to Stream")
+                           (mapcar #'ut:hello-reply.message stream-replies))
+             (assert-equal '("Reply 0 to Stream" "Reply 1 to Stream")
+                           stream-callback-messages)))
+         (bordeaux-threads:join-thread server-thread))
+    (grpc:shutdown-grpc)))

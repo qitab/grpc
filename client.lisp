@@ -226,7 +226,8 @@ FREE-CALL-DATA, and finalizes ASYNC-CALL."
 
 (defun poll-async-completion-queue (cq)
   "Background polling loop that waits for completed events on CQ via
-grpc_completion_queue_next and dispatches their completion handlers."
+grpc_completion_queue_next and dispatches their completion handlers to the
+client worker thread pool."
   (loop
     (multiple-value-bind (event-type tag success-p)
         (completion-queue-next cq -1.0d0)
@@ -240,7 +241,12 @@ grpc_completion_queue_next and dispatches their completion handlers."
                      (prog1 (gethash key *pending-async-calls*)
                        (remhash key *pending-async-calls*))))))
            (when async-call
-             (complete-async-call async-call success-p))))))))
+             (let ((pool (ensure-client-thread-pool)))
+               (unless (thread-pool-submit
+                        pool
+                        (lambda ()
+                          (complete-async-call async-call success-p)))
+                 (complete-async-call async-call success-p))))))))))
 
 (defun ensure-async-completion-queue ()
   "Returns *ASYNC-COMPLETION-QUEUE*, creating it and starting the background
@@ -317,7 +323,7 @@ and RECV-MESSAGE ops."
 (defun start-grpc-call (channel service-method-name client-context)
   "Start a grpc call. Requires a pointer to a grpc CHANNEL object, and a SERVICE-METHOD-NAME
 string to direct the call to. CLIENT-CONTEXT provides optional metadata and deadline."
-  (let ((cq (c-grpc-completion-queue-create-for-pluck)))
+  (let ((cq (acquire-pluck-cq)))
     (multiple-value-bind (call num-ops)
         (%init-client-call (make-call :owns-cq-p t)
                            channel service-method-name client-context cq)
@@ -366,19 +372,22 @@ result."
                 (free-call-data call)
                 (error 'grpc-call-error :call-error call-code)))
             call))
-        (progn
-          (bordeaux-threads:make-thread
-           (lambda ()
-             (let ((raw-response nil)
-                   (call-err nil))
-               (handler-case
-                   (setf raw-response
-                         (grpc-call channel service-method-name bytes-to-send
-                                    client-context server-stream client-stream))
-                 (error (e)
-                   (setf call-err e)))
-               (finalize-async-call async-call raw-response call-err)))
-           :name "gRPC Async Streaming Call")
+        (let ((pool (ensure-client-thread-pool)))
+          (unless (thread-pool-submit
+                   pool
+                   (lambda ()
+                     (let ((raw-response nil)
+                           (call-err nil))
+                       (handler-case
+                           (setf raw-response
+                                 (grpc-call channel service-method-name bytes-to-send
+                                            client-context server-stream client-stream))
+                         (error (e)
+                           (setf call-err e)))
+                       (finalize-async-call async-call raw-response call-err))))
+            (finalize-async-call
+             async-call nil
+             (make-condition 'grpc-call-error :call-error :grpc-call-error)))
           async-call))))
 
 (defun grpc-call (channel service-method-name bytes-to-send
