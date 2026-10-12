@@ -762,6 +762,15 @@ grpc_slice*."
 
 ;; Init/Shutdown Functions
 
+(defvar *max-pluck-cq-pool-size* 64
+  "Maximum number of idle GRPC_CQ_PLUCK completion queues retained in *PLUCK-CQ-POOL*.")
+
+(defvar *pluck-cq-pool* nil
+  "List of idle GRPC_CQ_PLUCK completion queues available for reuse.")
+
+(defvar *pluck-cq-pool-lock* (bordeaux-threads:make-lock "grpc-pluck-cq-pool-lock")
+  "Lock protecting *PLUCK-CQ-POOL*.")
+
 (defun init-grpc ()
   "Initializes gRPC.
 Users should not call this directly but rather use with-grpc
@@ -779,6 +788,35 @@ macros and only call once."
                           :pointer cq)
     (cffi:foreign-funcall "grpc_completion_queue_destroy"
                           :pointer cq)))
+
+(defun acquire-pluck-cq ()
+  "Returns a GRPC_CQ_PLUCK completion queue from *PLUCK-CQ-POOL*, or creates a
+new one if the pool is empty."
+  (or (bordeaux-threads:with-lock-held (*pluck-cq-pool-lock*)
+        (pop *pluck-cq-pool*))
+      (c-grpc-completion-queue-create-for-pluck)))
+
+(defun release-pluck-cq (cq)
+  "Returns CQ to *PLUCK-CQ-POOL* if gRPC is active and the pool is below
+*MAX-PLUCK-CQ-POOL-SIZE*, or destroys CQ otherwise."
+  (when (and cq (not (cffi:null-pointer-p cq)))
+    (let ((pooled-p nil))
+      (when *completion-queue*
+        (bordeaux-threads:with-lock-held (*pluck-cq-pool-lock*)
+          (when (< (length *pluck-cq-pool*) *max-pluck-cq-pool-size*)
+            (push cq *pluck-cq-pool*)
+            (setf pooled-p t))))
+      (unless pooled-p
+        (destroy-completion-queue cq)))))
+
+(defun flush-pluck-cq-pool ()
+  "Destroys all idle completion queues currently in *PLUCK-CQ-POOL*."
+  (let ((cqs nil))
+    (bordeaux-threads:with-lock-held (*pluck-cq-pool-lock*)
+      (setf cqs *pluck-cq-pool*
+            *pluck-cq-pool* nil))
+    (dolist (cq cqs)
+      (destroy-completion-queue cq))))
 
 (defun shutdown-grpc ()
   "Shut down gRPC.
@@ -798,9 +836,11 @@ macros and only call once."
         (bordeaux-threads:join-thread poller-thread))
       (cffi:foreign-funcall "grpc_completion_queue_destroy"
                             :pointer async-cq)))
-  (when *completion-queue*
-    (destroy-completion-queue *completion-queue*)
-    (setf *completion-queue* nil))
+  (let ((cq *completion-queue*))
+    (setf *completion-queue* nil)
+    (when cq
+      (destroy-completion-queue cq)))
+  (flush-pluck-cq-pool)
   (cffi:foreign-funcall "grpc_shutdown"))
 
 ;; Shared structures
@@ -929,7 +969,7 @@ underlying grpc_byte_buffer."
       (grpc-ops-free ops (/ (length (call-ops-plist call)) 2)))
     (grpc-call-unref c-call)
     (when (call-owns-cq-p call)
-      (destroy-completion-queue (call-c-cq call))
+      (release-pluck-cq (call-c-cq call))
       (setf (call-c-cq call) nil
             (call-owns-cq-p call) nil))
     (when (and status-error (not (call-status-checked-p call)))

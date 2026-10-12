@@ -57,6 +57,14 @@
    #:method-details-client-stream
    #:method-details-input-streaming-p
    #:method-details-output-streaming-p
+   ;; Thread Pool
+   #:*default-thread-pool-size*
+   #:thread-pool
+   #:thread-pool-p
+   #:make-thread-pool
+   #:thread-pool-submit
+   #:wait-for-thread-pool
+   #:shutdown-thread-pool
    ;; Conditions
    #:grpc-call-error
    #:proto-call-error

@@ -329,3 +329,90 @@ and that free-call-data destroys the completion queue only when owns-cq-p is tru
     (assert-false (grpc::call-c-cq call-object))
     (assert-false (grpc::call-owns-cq-p call-object))))
 
+(deftest test-pluck-cq-pool (server-suite)
+  "Validate that acquire-pluck-cq, release-pluck-cq, and flush-pluck-cq-pool
+reuse completion queues up to *max-pluck-cq-pool-size* when *completion-queue*
+is active and destroy excess or flushed completion queues."
+  (let ((created-counter 0)
+        (destroyed-cqs nil)
+        (grpc::*completion-queue* (cffi:make-pointer 999))
+        (grpc::*pluck-cq-pool* nil)
+        (grpc::*max-pluck-cq-pool-size* 2))
+    (with-mocked-functions ((grpc::c-grpc-completion-queue-create-for-pluck
+                             ()
+                             (incf created-counter)
+                             (cffi:make-pointer created-counter))
+                            (grpc::destroy-completion-queue
+                             (cq)
+                             (push cq destroyed-cqs)))
+      (let ((cq1 (grpc::acquire-pluck-cq))
+            (cq2 (grpc::acquire-pluck-cq))
+            (cq3 (grpc::acquire-pluck-cq)))
+        (assert-eql 3 created-counter)
+        ;; Return all 3 CQs; only 2 should be pooled and the 3rd destroyed.
+        (grpc::release-pluck-cq cq1)
+        (grpc::release-pluck-cq cq2)
+        (grpc::release-pluck-cq cq3)
+        (assert-eql 1 (length destroyed-cqs))
+        (assert-true (cffi:pointer-eq cq3 (first destroyed-cqs)))
+        ;; Re-acquiring should reuse the 2 pooled CQs without creating new ones.
+        (let ((reused1 (grpc::acquire-pluck-cq))
+              (reused2 (grpc::acquire-pluck-cq)))
+          (assert-eql 3 created-counter)
+          (assert-true (cffi:pointer-eq cq2 reused1))
+          (assert-true (cffi:pointer-eq cq1 reused2))
+          (grpc::release-pluck-cq reused1)
+          (grpc::release-pluck-cq reused2))
+        ;; Flushing the pool should destroy all remaining pooled CQs.
+        (grpc::flush-pluck-cq-pool)
+        (assert-eql 3 (length destroyed-cqs))
+        (assert-false grpc::*pluck-cq-pool*)))))
+
+(deftest test-thread-pool (server-suite)
+  "Validate that thread-pool executes submitted tasks concurrently up to
+max-threads, supports wait-for-thread-pool, drains queued tasks on shutdown,
+and rejects tasks submitted after shutdown."
+  (let* ((pool (grpc:make-thread-pool :max-threads 2 :name "test-pool"))
+         (lock (bordeaux-threads:make-lock "test-pool-lock"))
+         (ready-condvar
+           (bordeaux-threads:make-condition-variable :name "test-pool-ready-cv"))
+         (release-condvar
+           (bordeaux-threads:make-condition-variable :name "test-pool-release-cv"))
+         (active 0)
+         (max-observed-active 0)
+         (completed nil)
+         (release-p nil))
+    (unwind-protect
+         (progn
+           (assert-true (grpc:thread-pool-p pool))
+           (dotimes (i 6)
+             (let ((task-id i))
+               (assert-true
+                (grpc:thread-pool-submit
+                 pool
+                 (lambda ()
+                   (bordeaux-threads:with-lock-held (lock)
+                     (incf active)
+                     (when (> active max-observed-active)
+                       (setf max-observed-active active))
+                     (bordeaux-threads:condition-notify ready-condvar)
+                     (loop until release-p
+                           do (bordeaux-threads:condition-wait
+                               release-condvar lock))
+                     (bordeaux-threads:condition-notify release-condvar)
+                     (decf active)
+                     (push task-id completed)))))))
+           ;; Wait until 2 workers are simultaneously active.
+           (bordeaux-threads:with-lock-held (lock)
+             (loop until (= active 2)
+                   do (bordeaux-threads:condition-wait ready-condvar lock))
+             (setf release-p t)
+             (bordeaux-threads:condition-notify release-condvar))
+           (grpc:wait-for-thread-pool pool)
+           (bordeaux-threads:with-lock-held (lock)
+             (assert-eql 2 max-observed-active)
+             (assert-eql 6 (length completed))
+             (assert-equal '(0 1 2 3 4 5) (sort (copy-list completed) #'<)))
+           (grpc:shutdown-thread-pool pool :wait-p t)
+           (assert-false (grpc:thread-pool-submit pool (lambda () nil))))
+      (grpc:shutdown-thread-pool pool :wait-p nil))))
