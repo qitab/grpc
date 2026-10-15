@@ -57,7 +57,7 @@
       ;; Unary streaming
       (let* ((message (testing:make-hello-request :name "Neo"))
              (response (testing-rpc:call-say-hello channel message)))
-        (log:info "Response: ~A" (testing:hello-reply.message response)))
+        (format nil "Response: ~A" (testing:hello-reply.message response)))
 
       ;; Server Streaming
       (let* ((message (testing:make-hello-request :name "Neo"
@@ -65,5 +65,5 @@
              (response (testing-rpc:call-say-hello-server-stream channel message)))
         (loop for message in response
               do
-           (log:info "Response: ~A" (testing:hello-reply.message message)))))
+           (format nil "Response: ~A" (testing:hello-reply.message message)))))
     (grpc:shutdown-grpc)))

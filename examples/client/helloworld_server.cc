@@ -32,7 +32,7 @@ using grpc::SslServerCredentialsOptions;
 using grpc::Status;
 using lisp::grpc::integration_testing::HelloReply;
 using lisp::grpc::integration_testing::HelloRequest;
-using lisp::grpc::integration_testing::grpc_gen::Greeter;
+using lisp::grpc::integration_testing::Greeter;
 
 ABSL_FLAG(int32_t, port, 0, "Port server listening on.");
 ABSL_FLAG(std::string, auth_mechanism, "", "Authentication mechanism.");
