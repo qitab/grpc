@@ -168,6 +168,27 @@ jobs:
           cmake . -DCMAKE_CXX_STANDARD=17
           cmake --build . --target install --parallel $(nproc)
 
+      - name: Build example server
+        if: matrix.lisp == 'sbcl'
+        run: |
+          set -ex
+          cd $GITHUB_WORKSPACE/quicklisp/local-projects/grpc
+          GEN_DIR="$RUNNER_TEMP/helloworld"
+          mkdir -p "$GEN_DIR"
+          protoc -I. --cpp_out="$GEN_DIR" --grpc_out="$GEN_DIR" \
+            --plugin=protoc-gen-grpc="$(which grpc_cpp_plugin)" \
+            examples/client/helloworld.proto
+          # grpc.pc requires re2.pc, which the bundled gRPC build doesn't
+          # install, so link the gRPC libraries directly. Computing the flags
+          # in a separate assignment makes a pkg-config failure fail the step.
+          DEP_FLAGS=$(pkg-config --cflags --libs protobuf absl_flags absl_flags_parse absl_check absl_log absl_strings absl_cord)
+          g++ -std=c++17 -I. -I"$GEN_DIR" -I/usr/local/include \
+            examples/client/helloworld_server.cc \
+            "$GEN_DIR"/examples/client/helloworld.pb.cc \
+            "$GEN_DIR"/examples/client/helloworld.grpc.pb.cc \
+            -o "$GEN_DIR"/helloworld_server \
+            -L/usr/local/lib -lgrpc++ -lgrpc -lgpr $DEP_FLAGS
+
       - name: Load and run tests
         run: |
           export PATH="$PATH:$GITHUB_WORKSPACE/quicklisp/local-projects/cl-protobufs/protoc/"
@@ -183,3 +204,17 @@ jobs:
             exit 1
           fi
           grep -q "ok" report
+
+      - name: Run example client/server integration tests
+        if: matrix.lisp == 'sbcl'
+        run: |
+          set -ex
+          export PATH="$PATH:$GITHUB_WORKSPACE/quicklisp/local-projects/cl-protobufs/protoc/"
+          cd $GITHUB_WORKSPACE/quicklisp/local-projects
+          rm -rf ace.core ace.flag
+          git clone --depth 1 https://github.com/qitab/ace.core
+          git clone --depth 1 https://github.com/qitab/ace.flag
+          cd grpc
+          bash examples/client/run_integration_tests.sh \
+            "$RUNNER_TEMP/helloworld/helloworld_server" \
+            "$GITHUB_WORKSPACE/quicklisp/setup.lisp"

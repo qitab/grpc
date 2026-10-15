@@ -10,7 +10,6 @@
   (:use #:common-lisp)
   (:local-nicknames (#:testing #:cl-protobufs.lisp.grpc.integration-testing)
                     (#:testing-rpc #:cl-protobufs.lisp.grpc.integration-testing-rpc)
-                    (#:log #:google.log)
                     (#:flag #:ace.flag))
   (:export #:main))
 
@@ -42,7 +41,6 @@
   :type STRING)
 
 (defun main ()
-  (google:init)
   (grpc:init-grpc)
   (let ((pem-root-certs (uiop:read-file-string (truename root-cert-path)))
         (private-key (uiop:read-file-string (truename private-key-path)))
