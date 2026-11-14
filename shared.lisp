@@ -68,13 +68,13 @@ grpc_completion_queue_create_for_next) used for non-blocking async calls.")
   *completion-queue*)
 
 ;; gRPC Enums
-(cffi:defcenum grpc-completion-type
+(cffi:defcenum (grpc-completion-type :int)
   "The type of completion (for grpc_event)."
   :GRPC-QUEUE-SHUTDOWN
   :GRPC-QUEUE-TIMEOUT
   :GRPC-OP-COMPLETE)
 
-(cffi:defcenum grpc-security-level
+(cffi:defcenum (grpc-security-level :int)
   "Security levels of grpc transport security. It represents an inherent
 property of a backend connection and is determined by a channel credential
 used to create the connection."
@@ -84,7 +84,7 @@ used to create the connection."
   :GRPC-PRIVACY-AND-INTEGRITY
   :GRPC-SECURITY-MAX)
 
-(cffi:defcenum grpc-ssl-client-certificate-request-type
+(cffi:defcenum (grpc-ssl-client-certificate-request-type :int)
   "SSL Client Certificate Request Types are how the gRPC Server should handle
 SSL Authentication"
   :GRPC-SSL-DONT-REQUEST-CLIENT-CERTIFICATE
@@ -93,7 +93,7 @@ SSL Authentication"
   :GRPC-SSL-REQUEST-AND-REQUIRE-CLIENT-CERTIFICATE-BUT-DONT-VERIFY
   :GRPC-SSL-REQUEST-AND-REQUIRE-CLIENT-CERTIFICATE-AND-VERIFY)
 
-(cffi:defcenum grpc-call-error
+(cffi:defcenum (grpc-call-error :int)
   "This enum represents all the possible return values from
 grpc_call_start_batch."
   :GRPC-CALL-OK
@@ -113,7 +113,7 @@ grpc_call_start_batch."
   :GRPC-CALL-ERROR-PAYLOAD-TYPE-MISMATCH
   :GRPC-CALL-ERROR-COMPLETION-QUEUE-SHUTDOWN)
 
-(cffi:defcenum grpc-status-code
+(cffi:defcenum (grpc-status-code :int)
   "The grpc-status-code enum values"
   :GRPC-STATUS-OK
   :GRPC-STATUS-CANCELLED
